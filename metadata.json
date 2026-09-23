@@ -1,0 +1,6 @@
+{
+  "name": "SRA Live Stream Analytics",
+  "description": "Aplikasi manajemen dan analisis data performa Shopee Live dari screenshot laporan harian streamer dengan Vision AI dan database analitik.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

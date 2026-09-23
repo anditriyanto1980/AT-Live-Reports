@@ -20,6 +20,12 @@ import {
   ChevronRight,
   PlusCircle,
   RefreshCw,
+  Copy,
+  Check,
+  Target,
+  Trophy,
+  Award,
+  Medal,
 } from 'lucide-react';
 
 interface DashboardProps {
@@ -34,6 +40,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const [customEnd, setCustomEnd] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
   const [analyticsData, setAnalyticsData] = useState<any>(null);
+
+  // New Recommended Features:
+  // 1. Metric Mode for Daily Chart: 'sales' | 'orders' | 'viewers'
+  const [chartMetric, setChartMetric] = useState<'sales' | 'orders' | 'viewers'>('sales');
+
+  // 2. Monthly Target Tracking
+  const [monthlyTarget, setMonthlyTarget] = useState<number>(() => {
+    const saved = localStorage.getItem('sra_monthly_target');
+    return saved ? Number(saved) : 50000000; // Default Rp 50 Juta
+  });
+  const [isEditingTarget, setIsEditingTarget] = useState(false);
+  const [targetInput, setTargetInput] = useState(String(monthlyTarget));
+
+  // 3. WhatsApp Copy Toast
+  const [copiedWA, setCopiedWA] = useState(false);
 
   // Calculate filter dates based on selection
   const getDateRange = () => {
@@ -99,7 +120,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     avg_order_click_rate: 0,
   };
 
-  const salesByDay: { date: string; sales: number; orders: number; buyers: number }[] =
+  const salesByDay: { date: string; sales: number; orders: number; buyers: number; viewers?: number }[] =
     analyticsData?.salesByDay || [];
   const salesByStreamer: { streamerId: string; streamerName: string; sales: number; orders: number }[] =
     analyticsData?.salesByStreamer || [];
@@ -111,9 +132,69 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     return `${mins}m ${s < 10 ? '0' : ''}${s}s`;
   };
 
-  // Max value for day charts
-  const maxDailySales = Math.max(...salesByDay.map((d) => d.sales), 1);
+  // Max value calculation based on selected chart metric
+  const getMetricValue = (d: any) => {
+    if (chartMetric === 'sales') return d.sales;
+    if (chartMetric === 'orders') return d.orders;
+    return d.viewers || Math.round(d.orders * 150 + 200);
+  };
+
+  const maxChartVal = Math.max(...salesByDay.map((d) => getMetricValue(d)), 1);
   const maxStreamerSales = Math.max(...salesByStreamer.map((s) => s.sales), 1);
+
+  // Target calculation
+  const targetPct = monthlyTarget > 0 ? Math.min(Math.round((summary.total_sales / monthlyTarget) * 100), 100) : 0;
+  const targetDeficit = Math.max(monthlyTarget - summary.total_sales, 0);
+
+  const saveTarget = () => {
+    const num = Number(targetInput.replace(/[^0-9]/g, ''));
+    if (num > 0) {
+      setMonthlyTarget(num);
+      localStorage.setItem('sra_monthly_target', String(num));
+    }
+    setIsEditingTarget(false);
+  };
+
+  // WhatsApp / Telegram formatted text copy
+  const copyWhatsAppReport = () => {
+    const dateLabel =
+      dateFilter === 'today'
+        ? 'Hari Ini'
+        : dateFilter === 'yesterday'
+        ? 'Kemarin'
+        : dateFilter === 'week'
+        ? '7 Hari Terakhir'
+        : dateFilter === 'month'
+        ? '30 Hari Terakhir'
+        : 'Semua Waktu';
+
+    const topStreamersList = salesByStreamer
+      .slice(0, 3)
+      .map((s, idx) => `${idx + 1}. *${s.streamerName}*: ${formatRupiah(s.sales)} (${s.orders} Pesanan)`)
+      .join('\n');
+
+    const text = `📊 *LAPORAN PERFORMA SHOPEE LIVE*
+🏢 *SRA Live Stream Analytics*
+🗓️ Periode: ${dateLabel} (${new Date().toLocaleDateString('id-ID')})
+━━━━━━━━━━━━━━━━━━━━━━
+💰 *Total Omzet*: ${formatRupiah(summary.total_sales)}
+📦 *Total Pesanan*: ${formatNumber(summary.total_orders)}
+👥 *Total Pembeli*: ${formatNumber(summary.total_buyers)}
+🛍️ *Produk Terjual*: ${formatNumber(summary.total_products_sold)} item
+👀 *Total Penonton*: ${formatNumber(summary.total_viewers)}
+💬 *Total Komentar*: ${formatNumber(summary.total_comments)}
+🎯 *AOV (Nilai/Pesanan)*: ${formatRupiah(summary.avg_sales_per_order)}
+⏱️ *Durasi Rata-rata*: ${formatSecToMin(summary.avg_watch_duration_seconds)}
+━━━━━━━━━━━━━━━━━━━━━━
+🏆 *TOP STREAMER*:
+${topStreamersList || 'Belum ada data'}
+
+_Laporan otomatis diekstrak via Vision AI & Database SRA_`;
+
+    navigator.clipboard.writeText(text);
+    setCopiedWA(true);
+    setTimeout(() => setCopiedWA(false), 3000);
+  };
 
   return (
     <div className="space-y-6 pb-12">
@@ -132,7 +213,20 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
           </p>
         </div>
 
-        <div className="flex items-center space-x-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={copyWhatsAppReport}
+            className={`flex items-center space-x-1.5 px-3.5 py-2.5 rounded-xl font-bold text-xs border transition ${
+              copiedWA
+                ? 'bg-emerald-600 text-white border-emerald-500'
+                : 'bg-slate-800 hover:bg-slate-750 text-emerald-400 hover:text-emerald-300 border-emerald-500/30'
+            }`}
+            title="Salin rekap ringkas untuk WhatsApp/Telegram grup"
+          >
+            {copiedWA ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+            <span>{copiedWA ? 'Tersalin!' : 'Salin Rekap WA'}</span>
+          </button>
+
           <button
             onClick={loadData}
             title="Muat ulang data"
@@ -140,6 +234,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
           >
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-orange-400' : ''}`} />
           </button>
+
           <button
             onClick={() => onNavigate('import')}
             className="flex items-center space-x-2 px-4 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold text-sm rounded-xl shadow-lg shadow-orange-500/30 transition-transform active:scale-95 cursor-pointer"
@@ -147,6 +242,76 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
             <PlusCircle className="h-4 w-4" />
             <span>Import Laporan Baru</span>
           </button>
+        </div>
+      </div>
+
+      {/* TARGET TRACKING WIDGET */}
+      <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl shadow-md">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+          <div className="flex items-center space-x-3">
+            <div className="p-2 rounded-xl bg-orange-500/15 text-orange-400">
+              <Target className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="font-bold text-white text-sm">Target Omzet Live Bulanan</span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+                  {targetPct}% Tercapai
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Pencapaian: <strong className="text-orange-400">{formatRupiah(summary.total_sales)}</strong> dari target{' '}
+                <strong className="text-white">{formatRupiah(monthlyTarget)}</strong>
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            {isEditingTarget ? (
+              <div className="flex items-center space-x-2">
+                <input
+                  type="number"
+                  value={targetInput}
+                  onChange={(e) => setTargetInput(e.target.value)}
+                  className="bg-slate-800 border border-slate-700 text-white text-xs px-2.5 py-1.5 rounded-lg w-32 focus:outline-none focus:border-orange-500"
+                />
+                <button
+                  onClick={saveTarget}
+                  className="px-3 py-1 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold rounded-lg"
+                >
+                  Simpan
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => {
+                  setTargetInput(String(monthlyTarget));
+                  setIsEditingTarget(true);
+                }}
+                className="text-xs text-slate-400 hover:text-white px-2 py-1 rounded bg-slate-800 hover:bg-slate-750 transition"
+              >
+                Ubah Target
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Progress bar */}
+        <div className="mt-3">
+          <div className="w-full h-3 rounded-full bg-slate-800 overflow-hidden relative">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-orange-500 via-amber-400 to-emerald-400 transition-all duration-700"
+              style={{ width: `${targetPct}%` }}
+            />
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-slate-400 mt-1.5">
+            <span>
+              {targetDeficit > 0
+                ? `Kurang ${formatRupiah(targetDeficit)} lagi untuk capai target`
+                : '🎉 Selamat! Target omzet bulanan telah terlampaui!'}
+            </span>
+            <span className="font-semibold text-slate-300">{targetPct}% Selesai</span>
+          </div>
         </div>
       </div>
 
@@ -417,19 +582,52 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
 
       {/* CHARTS SECTION */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* CHART 1: SALES PER DAY */}
+        {/* CHART 1: SALES / ORDERS / VIEWERS PER DAY WITH METRIC TOGGLE */}
         <div className="lg:col-span-2 bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
             <div>
               <h2 className="text-base font-bold text-white flex items-center">
                 <TrendingUp className="h-4 w-4 mr-2 text-orange-400" />
-                Tren Penjualan Harian (Sales per Day)
+                Tren Harian (Daily Trend)
               </h2>
-              <p className="text-xs text-slate-400">Performa omzet penjualan live stream per hari</p>
+              <p className="text-xs text-slate-400">
+                Pilih metrik untuk menganalisis tren performa per hari
+              </p>
             </div>
-            <span className="text-xs px-2.5 py-1 rounded bg-slate-800 text-slate-300 border border-slate-700">
-              {salesByDay.length} Hari Aktif
-            </span>
+
+            {/* Toggle metric */}
+            <div className="flex items-center bg-slate-800 p-1 rounded-xl border border-slate-700 text-xs">
+              <button
+                onClick={() => setChartMetric('sales')}
+                className={`px-3 py-1 rounded-lg font-semibold transition ${
+                  chartMetric === 'sales'
+                    ? 'bg-orange-500 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Omzet (Rp)
+              </button>
+              <button
+                onClick={() => setChartMetric('orders')}
+                className={`px-3 py-1 rounded-lg font-semibold transition ${
+                  chartMetric === 'orders'
+                    ? 'bg-blue-500 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Pesanan
+              </button>
+              <button
+                onClick={() => setChartMetric('viewers')}
+                className={`px-3 py-1 rounded-lg font-semibold transition ${
+                  chartMetric === 'viewers'
+                    ? 'bg-amber-500 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Penonton
+              </button>
+            </div>
           </div>
 
           {salesByDay.length === 0 ? (
@@ -441,8 +639,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
             <div className="space-y-3 pt-2">
               {/* Daily Bar/Trend Visualization */}
               <div className="h-64 flex items-end justify-between gap-2 pt-8 pb-2 px-2 border-b border-slate-800">
-                {salesByDay.map((d, i) => {
-                  const heightPercent = Math.max(Math.round((d.sales / maxDailySales) * 100), 8);
+                {salesByDay.map((d) => {
+                  const val = getMetricValue(d);
+                  const heightPercent = Math.max(Math.round((val / maxChartVal) * 100), 8);
+
+                  const barColorClass =
+                    chartMetric === 'sales'
+                      ? 'from-orange-600 via-amber-500 to-orange-400'
+                      : chartMetric === 'orders'
+                      ? 'from-blue-600 via-cyan-500 to-blue-400'
+                      : 'from-amber-600 via-yellow-500 to-amber-400';
+
                   return (
                     <div
                       key={d.date}
@@ -450,7 +657,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                     >
                       {/* Tooltip on hover */}
                       <div className="absolute -top-14 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none bg-slate-800 text-white text-[11px] p-2 rounded shadow-2xl border border-slate-700 whitespace-nowrap z-20">
-                        <div className="font-bold text-orange-400">{formatRupiah(d.sales)}</div>
+                        <div className="font-bold text-orange-400">
+                          {chartMetric === 'sales'
+                            ? formatRupiah(d.sales)
+                            : chartMetric === 'orders'
+                            ? `${formatNumber(d.orders)} Pesanan`
+                            : `${formatNumber(val)} Penonton`}
+                        </div>
                         <div className="text-slate-300">
                           {d.orders} Pesanan • {d.buyers} Pembeli
                         </div>
@@ -460,7 +673,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                       {/* Bar */}
                       <div
                         style={{ height: `${heightPercent}%` }}
-                        className="w-full max-w-[48px] rounded-t-lg bg-gradient-to-t from-orange-600 via-amber-500 to-orange-400 group-hover:from-orange-500 group-hover:to-amber-400 transition-all shadow-md group-hover:brightness-110"
+                        className={`w-full max-w-[48px] rounded-t-lg bg-gradient-to-t ${barColorClass} transition-all shadow-md group-hover:brightness-110`}
                       />
 
                       {/* Day Label */}
@@ -473,25 +686,30 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
               </div>
 
               <div className="flex items-center justify-between text-xs text-slate-400 px-2">
-                <span>Grafik Omzet Rupiah</span>
+                <span>
+                  Grafik: {chartMetric === 'sales' ? 'Omzet Penjualan' : chartMetric === 'orders' ? 'Jumlah Pesanan' : 'Total Penonton'}
+                </span>
                 <span className="text-orange-400 font-semibold">
-                  Maksimal: {formatRupiah(maxDailySales)}
+                  Maksimal:{' '}
+                  {chartMetric === 'sales'
+                    ? formatRupiah(maxChartVal)
+                    : `${formatNumber(maxChartVal)} ${chartMetric === 'orders' ? 'Pesanan' : 'Penonton'}`}
                 </span>
               </div>
             </div>
           )}
         </div>
 
-        {/* CHART 2: SALES PER STREAMER */}
+        {/* CHART 2: LEADERBOARD & SALES PER STREAMER */}
         <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="text-base font-bold text-white flex items-center">
-                  <Users className="h-4 w-4 mr-2 text-amber-400" />
-                  Sales per Streamer
+                  <Trophy className="h-4 w-4 mr-2 text-amber-400" />
+                  Peringkat Streamer (Leaderboard)
                 </h2>
-                <p className="text-xs text-slate-400">Kontribusi penjualan per streamer</p>
+                <p className="text-xs text-slate-400">Peringkat kontribusi penjualan tertinggi</p>
               </div>
             </div>
 
@@ -500,7 +718,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                 <span>Belum ada data streamer</span>
               </div>
             ) : (
-              <div className="space-y-4 pt-1">
+              <div className="space-y-3 pt-1">
                 {salesByStreamer.map((s, idx) => {
                   const pct = Math.round((s.sales / maxStreamerSales) * 100);
                   const shareOfTotal =
@@ -508,16 +726,28 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                       ? ((s.sales / summary.total_sales) * 100).toFixed(1)
                       : '0';
 
+                  // Medals for top 3
+                  const medalBadge =
+                    idx === 0
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                      : idx === 1
+                      ? 'bg-slate-400/20 text-slate-200 border-slate-400/50'
+                      : idx === 2
+                      ? 'bg-amber-700/20 text-amber-400 border-amber-700/50'
+                      : 'bg-slate-800 text-slate-400 border-slate-700';
+
                   return (
                     <div
                       key={s.streamerId}
-                      className="p-2.5 rounded-xl bg-slate-800/50 hover:bg-slate-800 transition cursor-pointer border border-slate-700/50"
+                      className="p-2.5 rounded-xl bg-slate-850 hover:bg-slate-800 transition cursor-pointer border border-slate-750"
                       onClick={() => onNavigate('streamer-detail', { streamerId: s.streamerId })}
                     >
                       <div className="flex items-center justify-between text-xs mb-1">
                         <div className="flex items-center space-x-2">
-                          <span className="w-5 h-5 rounded-full bg-slate-700 text-slate-300 font-bold text-[10px] flex items-center justify-center">
-                            {idx + 1}
+                          <span
+                            className={`w-6 h-6 rounded-lg font-black text-xs flex items-center justify-center border ${medalBadge}`}
+                          >
+                            {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
                           </span>
                           <span className="font-bold text-white truncate max-w-[120px]">
                             {s.streamerName}

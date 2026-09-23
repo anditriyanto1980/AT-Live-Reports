@@ -113,7 +113,7 @@ export const StreamersList: React.FC<StreamersListProps> = ({ onNavigate }) => {
         });
       }
       setIsModalOpen(false);
-      loadData();
+      await loadData();
     } catch (err: any) {
       setFormError(err.message || 'Gagal menyimpan streamer.');
     } finally {

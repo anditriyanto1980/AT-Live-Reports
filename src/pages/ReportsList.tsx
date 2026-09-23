@@ -21,6 +21,9 @@ import {
   AlertTriangle,
   Eye,
   CheckCircle,
+  Copy,
+  Check,
+  FileText,
 } from 'lucide-react';
 
 interface ReportsListProps {
@@ -48,6 +51,9 @@ export const ReportsList: React.FC<ReportsListProps> = ({ onNavigate }) => {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(10);
 
+  // Detail View Modal
+  const [viewingReport, setViewingReport] = useState<LiveReport | null>(null);
+
   // Edit Modal State
   const [editingReport, setEditingReport] = useState<LiveReport | null>(null);
   const [editForm, setEditForm] = useState<Partial<LiveReport>>({});
@@ -60,11 +66,13 @@ export const ReportsList: React.FC<ReportsListProps> = ({ onNavigate }) => {
 
   // Toast
   const [notification, setNotification] = useState<string | null>(null);
+  const [copiedRowId, setCopiedRowId] = useState<string | null>(null);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [reportsData, streamersData] = await Promise.all([
+      const [streamersList, reportsList] = await Promise.all([
+        fetchStreamers(),
         fetchReports({
           streamer_id: filterStreamerId,
           startDate: filterStartDate,
@@ -73,12 +81,11 @@ export const ReportsList: React.FC<ReportsListProps> = ({ onNavigate }) => {
           sortBy,
           sortOrder,
         }),
-        fetchStreamers(),
       ]);
-      setReports(reportsData);
-      setStreamers(streamersData);
-    } catch (err: any) {
-      console.error(err);
+      setStreamers(streamersList);
+      setReports(reportsList);
+    } catch (err) {
+      console.error('Failed to load reports:', err);
     } finally {
       setLoading(false);
     }
@@ -86,13 +93,21 @@ export const ReportsList: React.FC<ReportsListProps> = ({ onNavigate }) => {
 
   useEffect(() => {
     loadData();
-  }, [filterStreamerId, filterStartDate, filterEndDate, searchQuery, sortBy, sortOrder]);
+  }, [filterStreamerId, filterStartDate, filterEndDate, sortBy, sortOrder]);
 
-  const handleSort = (column: string) => {
-    if (sortBy === column) {
+  // Handle client-side search debounce / immediate
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      loadData();
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [searchQuery]);
+
+  const handleSort = (field: string) => {
+    if (sortBy === field) {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
     } else {
-      setSortBy(column);
+      setSortBy(field);
       setSortOrder('desc');
     }
   };
@@ -142,8 +157,90 @@ export const ReportsList: React.FC<ReportsListProps> = ({ onNavigate }) => {
   };
 
   // Excel Export
-  const handleExport = () => {
+  const handleExportExcel = () => {
     exportReportsToExcel(reports, `Laporan_Shopee_Live_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  // CSV Export
+  const handleExportCSV = () => {
+    const headers = [
+      'Tanggal',
+      'Streamer',
+      'Username',
+      'Status Pesanan',
+      'Penjualan (Rp)',
+      'Total Pesanan',
+      'Total Pembeli',
+      'Produk Terjual',
+      'Total Penonton',
+      'Penonton Aktif',
+      'Penonton Tertinggi',
+      'Durasi Menonton',
+      'Total Komentar',
+      'Rasio Komentar (%)',
+      'Tambah ke Keranjang',
+      'Dilihat (Views)',
+      'Rasio Klik (%)',
+      'Pesanan per Klik (%)',
+      'Penjualan per Mil (Rp)',
+      'Nilai per Pesanan (Rp)',
+    ];
+
+    const rows = reports.map((r) => [
+      `"${r.report_date}"`,
+      `"${r.streamer?.name || '-'}"`,
+      `"${r.streamer?.username || '-'}"`,
+      `"${r.order_status || 'Pesanan Dibuat'}"`,
+      r.sales,
+      r.orders,
+      r.buyers,
+      r.products_sold,
+      r.viewers,
+      r.active_viewers,
+      r.peak_viewers,
+      `"${r.avg_watch_duration}"`,
+      r.comments,
+      r.comment_rate,
+      r.add_to_cart,
+      r.views,
+      r.click_rate,
+      r.order_click_rate,
+      r.sales_per_mille,
+      r.sales_per_order,
+    ]);
+
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `Laporan_Shopee_Live_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Copy single session to WhatsApp
+  const copySessionWA = (report: LiveReport) => {
+    const text = `📊 *LAPORAN LIVE SHOPEE*
+🗓️ Tanggal: ${formatDateIndo(report.report_date)}
+👤 Streamer: *${report.streamer?.name}* (@${report.streamer?.username})
+━━━━━━━━━━━━━━━━━━
+💰 *Omzet*: ${formatRupiah(report.sales)}
+📦 *Pesanan*: ${formatNumber(report.orders)}
+👥 *Pembeli*: ${formatNumber(report.buyers)}
+🛍️ *Produk*: ${formatNumber(report.products_sold)} item
+👀 *Penonton*: ${formatNumber(report.viewers)} (Puncak: ${formatNumber(report.peak_viewers)})
+⏱️ *Durasi Tonton*: ${report.avg_watch_duration}
+💬 *Komentar*: ${formatNumber(report.comments)} (${formatPercent(report.comment_rate)})
+🎯 *AOV*: ${formatRupiah(report.sales_per_order)}
+🛒 *Masuk Keranjang*: ${formatNumber(report.add_to_cart)}
+📈 *Rasio Klik*: ${formatPercent(report.click_rate)}
+━━━━━━━━━━━━━━━━━━
+_SRA Live Stream Analytics_`;
+
+    navigator.clipboard.writeText(text);
+    setCopiedRowId(report.id);
+    setTimeout(() => setCopiedRowId(null), 2500);
   };
 
   return (
@@ -163,7 +260,15 @@ export const ReportsList: React.FC<ReportsListProps> = ({ onNavigate }) => {
 
         <div className="flex flex-wrap items-center gap-3">
           <button
-            onClick={handleExport}
+            onClick={handleExportCSV}
+            className="flex items-center space-x-2 px-3.5 py-2.5 bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white font-bold text-xs sm:text-sm rounded-xl border border-slate-700 transition cursor-pointer"
+            title="Download CSV"
+          >
+            <FileText className="h-4 w-4 text-sky-400" />
+            <span>Export CSV</span>
+          </button>
+          <button
+            onClick={handleExportExcel}
             className="flex items-center space-x-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm rounded-xl shadow-lg shadow-emerald-600/20 transition cursor-pointer"
           >
             <Download className="h-4 w-4" />
@@ -192,10 +297,10 @@ export const ReportsList: React.FC<ReportsListProps> = ({ onNavigate }) => {
         </div>
       )}
 
-      {/* FILTER & SEARCH CONTROLS */}
+      {/* FILTER & SEARCH BAR */}
       <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl shadow-md space-y-3">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {/* Search */}
+          {/* Search text */}
           <div className="relative">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
             <input
@@ -419,7 +524,33 @@ export const ReportsList: React.FC<ReportsListProps> = ({ onNavigate }) => {
 
                     {/* Actions */}
                     <td className="p-3.5 text-center whitespace-nowrap">
-                      <div className="flex items-center justify-center space-x-1.5">
+                      <div className="flex items-center justify-center space-x-1">
+                        {/* View 17 Metrics */}
+                        <button
+                          onClick={() => setViewingReport(report)}
+                          title="Lihat 17 Metrik Lengkap"
+                          className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+
+                        {/* WhatsApp Single Row Copy */}
+                        <button
+                          onClick={() => copySessionWA(report)}
+                          title="Salin Ringkasan untuk WhatsApp"
+                          className={`p-1.5 rounded-lg transition ${
+                            copiedRowId === report.id
+                              ? 'text-emerald-400 bg-emerald-500/20'
+                              : 'text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10'
+                          }`}
+                        >
+                          {copiedRowId === report.id ? (
+                            <Check className="h-4 w-4" />
+                          ) : (
+                            <Copy className="h-4 w-4" />
+                          )}
+                        </button>
+
                         {canEditReports && (
                           <button
                             onClick={() => openEditModal(report)}
@@ -429,6 +560,7 @@ export const ReportsList: React.FC<ReportsListProps> = ({ onNavigate }) => {
                             <Edit2 className="h-4 w-4" />
                           </button>
                         )}
+
                         {canDeleteReports && (
                           <button
                             onClick={() => setDeletingReport(report)}
@@ -487,6 +619,180 @@ export const ReportsList: React.FC<ReportsListProps> = ({ onNavigate }) => {
           </div>
         </div>
       </div>
+
+      {/* VIEW MODAL: ALL 17 METRICS */}
+      {viewingReport && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-orange-400">
+                  Rincian 17 Metrik Shopee Live
+                </span>
+                <h3 className="font-black text-xl text-white">
+                  {viewingReport.streamer?.name} (@{viewingReport.streamer?.username})
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Tanggal: {formatDateIndo(viewingReport.report_date)} • Status: {viewingReport.order_status}
+                </p>
+              </div>
+              <button
+                onClick={() => setViewingReport(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg bg-slate-800"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Section 1: Financial & Sales */}
+            <div>
+              <h4 className="text-xs font-bold text-orange-400 uppercase tracking-wider mb-2">
+                1. Penjualan & Pesanan
+              </h4>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+                <div className="p-3 bg-slate-850 rounded-xl border border-slate-800">
+                  <span className="text-slate-400 block text-[11px]">Penjualan</span>
+                  <strong className="text-orange-400 text-base font-black">
+                    {formatRupiah(viewingReport.sales)}
+                  </strong>
+                </div>
+                <div className="p-3 bg-slate-850 rounded-xl border border-slate-800">
+                  <span className="text-slate-400 block text-[11px]">Total Pesanan</span>
+                  <strong className="text-white text-base font-bold">
+                    {formatNumber(viewingReport.orders)}
+                  </strong>
+                </div>
+                <div className="p-3 bg-slate-850 rounded-xl border border-slate-800">
+                  <span className="text-slate-400 block text-[11px]">Nilai/Pesanan (AOV)</span>
+                  <strong className="text-amber-400 text-sm font-bold">
+                    {formatRupiah(viewingReport.sales_per_order)}
+                  </strong>
+                </div>
+                <div className="p-3 bg-slate-850 rounded-xl border border-slate-800">
+                  <span className="text-slate-400 block text-[11px]">Penjualan per Mil (SPM)</span>
+                  <strong className="text-emerald-400 text-sm font-bold">
+                    {formatRupiah(viewingReport.sales_per_mille)}
+                  </strong>
+                </div>
+              </div>
+            </div>
+
+            {/* Section 2: Conversion & Products */}
+            <div>
+              <h4 className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-2">
+                2. Konversi & Produk
+              </h4>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
+                <div className="p-3 bg-slate-850 rounded-xl border border-slate-800">
+                  <span className="text-slate-400 block text-[11px]">Total Pembeli</span>
+                  <strong className="text-white text-sm font-bold">
+                    {formatNumber(viewingReport.buyers)}
+                  </strong>
+                </div>
+                <div className="p-3 bg-slate-850 rounded-xl border border-slate-800">
+                  <span className="text-slate-400 block text-[11px]">Produk Terjual</span>
+                  <strong className="text-purple-300 text-sm font-bold">
+                    {formatNumber(viewingReport.products_sold)}
+                  </strong>
+                </div>
+                <div className="p-3 bg-slate-850 rounded-xl border border-slate-800">
+                  <span className="text-slate-400 block text-[11px]">Masuk Keranjang</span>
+                  <strong className="text-amber-300 text-sm font-bold">
+                    {formatNumber(viewingReport.add_to_cart)}
+                  </strong>
+                </div>
+                <div className="p-3 bg-slate-850 rounded-xl border border-slate-800">
+                  <span className="text-slate-400 block text-[11px]">Rasio Klik</span>
+                  <strong className="text-cyan-400 text-sm font-bold">
+                    {formatPercent(viewingReport.click_rate)}
+                  </strong>
+                </div>
+                <div className="p-3 bg-slate-850 rounded-xl border border-slate-800">
+                  <span className="text-slate-400 block text-[11px]">Pesanan per Klik</span>
+                  <strong className="text-teal-400 text-sm font-bold">
+                    {formatPercent(viewingReport.order_click_rate)}
+                  </strong>
+                </div>
+              </div>
+            </div>
+
+            {/* Section 3: Audience & Engagement */}
+            <div>
+              <h4 className="text-xs font-bold text-pink-400 uppercase tracking-wider mb-2">
+                3. Penonton & Interaksi
+              </h4>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+                <div className="p-3 bg-slate-850 rounded-xl border border-slate-800">
+                  <span className="text-slate-400 block text-[11px]">Total Penonton</span>
+                  <strong className="text-white text-sm font-bold">
+                    {formatNumber(viewingReport.viewers)}
+                  </strong>
+                </div>
+                <div className="p-3 bg-slate-850 rounded-xl border border-slate-800">
+                  <span className="text-slate-400 block text-[11px]">Penonton Tertinggi</span>
+                  <strong className="text-amber-400 text-sm font-bold">
+                    {formatNumber(viewingReport.peak_viewers)}
+                  </strong>
+                </div>
+                <div className="p-3 bg-slate-850 rounded-xl border border-slate-800">
+                  <span className="text-slate-400 block text-[11px]">Penonton Aktif</span>
+                  <strong className="text-slate-300 text-sm font-bold">
+                    {formatNumber(viewingReport.active_viewers)}
+                  </strong>
+                </div>
+                <div className="p-3 bg-slate-850 rounded-xl border border-slate-800">
+                  <span className="text-slate-400 block text-[11px]">Durasi Tonton Rata-rata</span>
+                  <strong className="text-indigo-400 text-sm font-bold font-mono">
+                    {viewingReport.avg_watch_duration}
+                  </strong>
+                </div>
+                <div className="p-3 bg-slate-850 rounded-xl border border-slate-800">
+                  <span className="text-slate-400 block text-[11px]">Total Komentar</span>
+                  <strong className="text-pink-400 text-sm font-bold">
+                    {formatNumber(viewingReport.comments)}
+                  </strong>
+                </div>
+                <div className="p-3 bg-slate-850 rounded-xl border border-slate-800">
+                  <span className="text-slate-400 block text-[11px]">Rasio Komentar</span>
+                  <strong className="text-pink-300 text-sm font-bold">
+                    {formatPercent(viewingReport.comment_rate)}
+                  </strong>
+                </div>
+                <div className="p-3 bg-slate-850 rounded-xl border border-slate-800">
+                  <span className="text-slate-400 block text-[11px]">Total Dilihat (Views)</span>
+                  <strong className="text-slate-300 text-sm font-bold">
+                    {formatNumber(viewingReport.views)}
+                  </strong>
+                </div>
+                <div className="p-3 bg-slate-850 rounded-xl border border-slate-800">
+                  <span className="text-slate-400 block text-[11px]">Status Laporan</span>
+                  <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40 text-[10px]">
+                    {viewingReport.order_status}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Actions in Modal */}
+            <div className="flex items-center justify-between pt-3 border-t border-slate-800">
+              <button
+                onClick={() => copySessionWA(viewingReport)}
+                className="flex items-center space-x-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow transition"
+              >
+                <Copy className="h-4 w-4" />
+                <span>Salin Rekap WhatsApp</span>
+              </button>
+
+              <button
+                onClick={() => setViewingReport(null)}
+                className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* EDIT MODAL */}
       {editingReport && (

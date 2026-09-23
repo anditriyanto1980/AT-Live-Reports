@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { LiveReport, Streamer, User, DashboardSummary } from '../types';
 
 const DATA_DIR = path.resolve(process.cwd(), '.data');

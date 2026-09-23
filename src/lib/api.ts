@@ -152,28 +152,81 @@ export async function createStreamer(payload: {
 }
 
 export async function updateStreamer(id: string, payload: Partial<Streamer>): Promise<Streamer> {
-  const res = await fetch(`/api/streamers/${id}`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  });
+  const cleanId = encodeURIComponent(id.trim());
+  let res: Response;
+
+  try {
+    res = await fetch(`/api/streamers/${cleanId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    // Fallback to POST /update if proxy or environment disallows PUT (Status 405)
+    if (res.status === 405) {
+      res = await fetch(`/api/streamers/${cleanId}/update`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+    }
+  } catch {
+    res = await fetch(`/api/streamers/${cleanId}/update`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+  }
 
   const json = await safeParseResponse<{ success: boolean; data: Streamer }>(
     res,
     'Gagal memperbarui streamer'
   );
 
+  // Sync with local cache
+  if (json.data) {
+    const current = getCachedStreamers();
+    const idx = current.findIndex((s) => s.id === id);
+    if (idx !== -1) {
+      current[idx] = { ...current[idx], ...json.data };
+      setCachedStreamers(current);
+    }
+  }
+
   return json.data;
 }
 
 export async function deleteStreamer(id: string): Promise<void> {
-  const res = await fetch(`/api/streamers/${id}`, {
-    method: 'DELETE',
-    headers: { 'Accept': 'application/json' },
-  });
+  const cleanId = encodeURIComponent(id.trim());
+  let res: Response;
+
+  try {
+    res = await fetch(`/api/streamers/${cleanId}`, {
+      method: 'DELETE',
+      headers: { 'Accept': 'application/json' },
+    });
+
+    if (res.status === 405) {
+      res = await fetch(`/api/streamers/${cleanId}/delete`, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' },
+      });
+    }
+  } catch {
+    res = await fetch(`/api/streamers/${cleanId}/delete`, {
+      method: 'POST',
+      headers: { 'Accept': 'application/json' },
+    });
+  }
 
   await safeParseResponse<{ success: boolean; message?: string }>(
     res,
@@ -249,14 +302,39 @@ export async function createReport(
 }
 
 export async function updateReport(id: string, payload: Partial<LiveReport>): Promise<LiveReport> {
-  const res = await fetch(`/api/reports/${id}`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  });
+  const cleanId = encodeURIComponent(id.trim());
+  let res: Response;
+
+  try {
+    res = await fetch(`/api/reports/${cleanId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (res.status === 405) {
+      res = await fetch(`/api/reports/${cleanId}/update`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+    }
+  } catch {
+    res = await fetch(`/api/reports/${cleanId}/update`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+  }
 
   const json = await safeParseResponse<{ success: boolean; data: LiveReport }>(
     res,
@@ -266,10 +344,27 @@ export async function updateReport(id: string, payload: Partial<LiveReport>): Pr
 }
 
 export async function deleteReport(id: string): Promise<void> {
-  const res = await fetch(`/api/reports/${id}`, {
-    method: 'DELETE',
-    headers: { 'Accept': 'application/json' },
-  });
+  const cleanId = encodeURIComponent(id.trim());
+  let res: Response;
+
+  try {
+    res = await fetch(`/api/reports/${cleanId}`, {
+      method: 'DELETE',
+      headers: { 'Accept': 'application/json' },
+    });
+
+    if (res.status === 405) {
+      res = await fetch(`/api/reports/${cleanId}/delete`, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' },
+      });
+    }
+  } catch {
+    res = await fetch(`/api/reports/${cleanId}/delete`, {
+      method: 'POST',
+      headers: { 'Accept': 'application/json' },
+    });
+  }
 
   await safeParseResponse<{ success: boolean }>(res, 'Gagal menghapus laporan');
 }

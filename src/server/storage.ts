@@ -294,18 +294,41 @@ class StorageManager {
   }
 
   updateStreamer(id: string, updates: Partial<Omit<Streamer, 'id' | 'created_at'>>): Streamer {
-    const index = this.data.streamers.findIndex((s) => s.id === id);
+    let index = this.data.streamers.findIndex((s) => s.id === id);
+
     if (index === -1) {
+      // Fallback: search by username if ID mismatch occurred
+      const usernameClean = updates.username?.startsWith('@') ? updates.username.slice(1) : updates.username;
+      if (usernameClean) {
+        index = this.data.streamers.findIndex((s) => s.username.toLowerCase() === usernameClean.toLowerCase());
+      }
+    }
+
+    if (index === -1) {
+      // If still not found, but valid name and username provided, upsert streamer
+      if (updates.name && updates.username) {
+        const cleanUser = updates.username.startsWith('@') ? updates.username.slice(1) : updates.username;
+        const newStreamer: Streamer = {
+          id,
+          name: updates.name,
+          username: cleanUser,
+          status: updates.status || 'active',
+          created_at: new Date().toISOString(),
+        };
+        this.data.streamers.push(newStreamer);
+        this.save();
+        return newStreamer;
+      }
       throw new Error('Streamer tidak ditemukan');
     }
 
     if (updates.username) {
       const usernameClean = updates.username.startsWith('@') ? updates.username.slice(1) : updates.username;
       const dup = this.data.streamers.find(
-        (s) => s.id !== id && s.username.toLowerCase() === usernameClean.toLowerCase()
+        (s, i) => i !== index && s.username.toLowerCase() === usernameClean.toLowerCase()
       );
       if (dup) {
-        throw new Error(`Username ${usernameClean} sudah digunakan streamer lain`);
+        throw new Error(`Username @${usernameClean} sudah digunakan streamer lain`);
       }
       updates.username = usernameClean;
     }

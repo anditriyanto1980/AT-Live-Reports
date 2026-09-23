@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { LiveReport, Streamer } from '../types';
 import { fetchReports, fetchStreamers, deleteReport, updateReport } from '../lib/api';
 import { formatRupiah, formatNumber, formatDateIndo, formatPercent } from '../lib/formatters';
-import { exportReportsToExcel } from '../lib/excelExport';
+import { exportReportsToExcel, exportReportsToCSV } from '../lib/excelExport';
 import { useAuth } from '../context/AuthContext';
 import {
   FileSpreadsheet,
@@ -24,6 +24,8 @@ import {
   Copy,
   Check,
   FileText,
+  SlidersHorizontal,
+  Layers,
 } from 'lucide-react';
 
 interface ReportsListProps {
@@ -63,6 +65,15 @@ export const ReportsList: React.FC<ReportsListProps> = ({ onNavigate }) => {
   // Delete Modal State
   const [deletingReport, setDeletingReport] = useState<LiveReport | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
+  // Export Modal State
+  const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
+  const [exportFormat, setExportFormat] = useState<'xlsx' | 'csv'>('xlsx');
+  const [exportScope, setExportScope] = useState<'filtered' | 'page'>('filtered');
+  const [exportDelimiter, setExportDelimiter] = useState<',' | ';'>(';');
+  const [exportIncludeSummary, setExportIncludeSummary] = useState<boolean>(true);
+  const [exportIncludeRecap, setExportIncludeRecap] = useState<boolean>(true);
+  const [customExportName, setCustomExportName] = useState<string>('');
 
   // Toast
   const [notification, setNotification] = useState<string | null>(null);
@@ -156,67 +167,75 @@ export const ReportsList: React.FC<ReportsListProps> = ({ onNavigate }) => {
     }
   };
 
-  // Excel Export
-  const handleExportExcel = () => {
-    exportReportsToExcel(reports, `Laporan_Shopee_Live_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  // Generate descriptive file name based on filters
+  const getGeneratedExportName = (ext: 'xlsx' | 'csv') => {
+    const streamerObj = streamers.find((s) => s.id === filterStreamerId);
+    const streamerSlug = streamerObj ? streamerObj.name.replace(/[^a-zA-Z0-9]/g, '_') : 'Semua_Streamer';
+    const dateRange =
+      filterStartDate || filterEndDate
+        ? `_${filterStartDate || 'Awal'}_sd_${filterEndDate || 'Akhir'}`
+        : `_${new Date().toISOString().slice(0, 10)}`;
+    return `Laporan_Shopee_Live_${streamerSlug}${dateRange}.${ext}`;
   };
 
-  // CSV Export
+  // Quick Excel Export (Filtered data with summary and recap sheets)
+  const handleExportExcel = () => {
+    if (reports.length === 0) {
+      alert('Tidak ada data laporan untuk diexport.');
+      return;
+    }
+    const fileName = getGeneratedExportName('xlsx');
+    exportReportsToExcel(reports, fileName, {
+      includeSummaryRow: true,
+      includeStreamerRecap: true,
+    });
+    setNotification(`Berhasil mendownload Excel (.xlsx): ${fileName}`);
+  };
+
+  // Quick CSV Export (Filtered data with standard format)
   const handleExportCSV = () => {
-    const headers = [
-      'Tanggal',
-      'Streamer',
-      'Username',
-      'Status Pesanan',
-      'Penjualan (Rp)',
-      'Total Pesanan',
-      'Total Pembeli',
-      'Produk Terjual',
-      'Total Penonton',
-      'Penonton Aktif',
-      'Penonton Tertinggi',
-      'Durasi Menonton',
-      'Total Komentar',
-      'Rasio Komentar (%)',
-      'Tambah ke Keranjang',
-      'Dilihat (Views)',
-      'Rasio Klik (%)',
-      'Pesanan per Klik (%)',
-      'Penjualan per Mil (Rp)',
-      'Nilai per Pesanan (Rp)',
-    ];
+    if (reports.length === 0) {
+      alert('Tidak ada data laporan untuk diexport.');
+      return;
+    }
+    const fileName = getGeneratedExportName('csv');
+    exportReportsToCSV(reports, fileName, {
+      csvDelimiter: ';',
+      includeSummaryRow: true,
+    });
+    setNotification(`Berhasil mendownload CSV (.csv): ${fileName}`);
+  };
 
-    const rows = reports.map((r) => [
-      `"${r.report_date}"`,
-      `"${r.streamer?.name || '-'}"`,
-      `"${r.streamer?.username || '-'}"`,
-      `"${r.order_status || 'Pesanan Dibuat'}"`,
-      r.sales,
-      r.orders,
-      r.buyers,
-      r.products_sold,
-      r.viewers,
-      r.active_viewers,
-      r.peak_viewers,
-      `"${r.avg_watch_duration}"`,
-      r.comments,
-      r.comment_rate,
-      r.add_to_cart,
-      r.views,
-      r.click_rate,
-      r.order_click_rate,
-      r.sales_per_mille,
-      r.sales_per_order,
-    ]);
+  // Modal Custom Export Executor
+  const handleExecuteModalExport = () => {
+    const targetData = exportScope === 'page' ? paginatedReports : reports;
+    if (targetData.length === 0) {
+      alert('Tidak ada data laporan untuk diexport.');
+      return;
+    }
 
-    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Laporan_Shopee_Live_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const defaultName = getGeneratedExportName(exportFormat);
+    let finalName = customExportName.trim();
+    if (!finalName) {
+      finalName = defaultName;
+    } else if (!finalName.toLowerCase().endsWith(`.${exportFormat}`)) {
+      finalName = `${finalName}.${exportFormat}`;
+    }
+
+    if (exportFormat === 'xlsx') {
+      exportReportsToExcel(targetData, finalName, {
+        includeSummaryRow: exportIncludeSummary,
+        includeStreamerRecap: exportIncludeRecap,
+      });
+    } else {
+      exportReportsToCSV(targetData, finalName, {
+        csvDelimiter: exportDelimiter,
+        includeSummaryRow: exportIncludeSummary,
+      });
+    }
+
+    setIsExportModalOpen(false);
+    setNotification(`File berhasil didownload (${targetData.length} baris): ${finalName}`);
   };
 
   // Copy single session to WhatsApp
@@ -258,25 +277,50 @@ _SRA Live Stream Analytics_`;
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Quick CSV Export */}
           <button
             onClick={handleExportCSV}
-            className="flex items-center space-x-2 px-3.5 py-2.5 bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white font-bold text-xs sm:text-sm rounded-xl border border-slate-700 transition cursor-pointer"
-            title="Download CSV"
+            className="flex items-center space-x-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white font-bold text-xs rounded-xl border border-slate-700 transition cursor-pointer shadow-sm"
+            title="Download cepat data terfilter ke format CSV (.csv)"
           >
             <FileText className="h-4 w-4 text-sky-400" />
-            <span>Export CSV</span>
+            <span>CSV</span>
+            <span className="text-[10px] px-1.5 py-0.5 bg-slate-700 rounded-md text-slate-300">
+              {reports.length}
+            </span>
           </button>
+
+          {/* Quick Excel Export */}
           <button
             onClick={handleExportExcel}
-            className="flex items-center space-x-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm rounded-xl shadow-lg shadow-emerald-600/20 transition cursor-pointer"
+            className="flex items-center space-x-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-600/20 transition cursor-pointer"
+            title="Download cepat data terfilter ke format Excel (.xlsx) dengan Sheet Rekap Streamer"
           >
-            <Download className="h-4 w-4" />
-            <span>Export Excel (.xlsx)</span>
+            <FileSpreadsheet className="h-4 w-4" />
+            <span>Excel</span>
+            <span className="text-[10px] px-1.5 py-0.5 bg-emerald-700/70 rounded-md text-white">
+              {reports.length}
+            </span>
           </button>
+
+          {/* Advanced Export Options Modal Trigger */}
+          <button
+            onClick={() => {
+              setCustomExportName(getGeneratedExportName(exportFormat));
+              setIsExportModalOpen(true);
+            }}
+            className="flex items-center space-x-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-amber-200 font-bold text-xs rounded-xl border border-amber-500/30 transition cursor-pointer"
+            title="Buka opsi export lanjutan (pilih format, delimiter, scope, dan sheet tambahan)"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            <span>Opsi Export</span>
+          </button>
+
+          {/* Tambah Laporan Button */}
           <button
             onClick={() => onNavigate('import')}
-            className="flex items-center space-x-2 px-4 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-lg shadow-orange-500/25 transition cursor-pointer"
+            className="flex items-center space-x-1.5 px-3.5 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold text-xs rounded-xl shadow-lg shadow-orange-500/25 transition cursor-pointer"
           >
             <Plus className="h-4 w-4" />
             <span>Tambah Laporan</span>
@@ -949,6 +993,217 @@ _SRA Live Stream Analytics_`;
               >
                 {isDeleting ? 'Menghapus...' : 'Hapus Laporan'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ADVANCED EXPORT OPTIONS MODAL */}
+      {isExportModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5 animate-fadeIn">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400">
+                  <Download className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-white">Export Data Shopee Live</h3>
+                  <p className="text-slate-400 text-xs">Pilih format dan parameter export sesuai kebutuhan analisis Anda</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsExportModalOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Format Selection Cards */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-300 block">Pilih Format File:</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setExportFormat('xlsx')}
+                  className={`p-3.5 rounded-xl border text-left transition flex flex-col justify-between cursor-pointer ${
+                    exportFormat === 'xlsx'
+                      ? 'bg-emerald-950/40 border-emerald-500 ring-1 ring-emerald-500/50'
+                      : 'bg-slate-850/60 border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between w-full mb-2">
+                    <div className="flex items-center space-x-2">
+                      <FileSpreadsheet className="h-5 w-5 text-emerald-400" />
+                      <span className="font-bold text-sm text-white">Excel (.xlsx)</span>
+                    </div>
+                    {exportFormat === 'xlsx' && <CheckCircle className="h-4 w-4 text-emerald-400" />}
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-snug">
+                    Multi-sheet (Data mentah + Rekap performa streamer) dengan baris total & format rapi.
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setExportFormat('csv')}
+                  className={`p-3.5 rounded-xl border text-left transition flex flex-col justify-between cursor-pointer ${
+                    exportFormat === 'csv'
+                      ? 'bg-sky-950/40 border-sky-500 ring-1 ring-sky-500/50'
+                      : 'bg-slate-850/60 border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between w-full mb-2">
+                    <div className="flex items-center space-x-2">
+                      <FileText className="h-5 w-5 text-sky-400" />
+                      <span className="font-bold text-sm text-white">CSV (.csv)</span>
+                    </div>
+                    {exportFormat === 'csv' && <CheckCircle className="h-4 w-4 text-sky-400" />}
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-snug">
+                    Universal UTF-8 BOM, cocok untuk Google Sheets, Python Pandas, BI, & database.
+                  </p>
+                </button>
+              </div>
+            </div>
+
+            {/* Scope Selection */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-300 block">Cakupan Data yang Diexport:</label>
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <label
+                  className={`flex items-center space-x-2.5 p-2.5 rounded-xl border cursor-pointer transition ${
+                    exportScope === 'filtered'
+                      ? 'bg-slate-800 border-amber-500/60 text-white font-semibold'
+                      : 'bg-slate-850/40 border-slate-800 text-slate-400 hover:border-slate-700'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="exportScope"
+                    checked={exportScope === 'filtered'}
+                    onChange={() => setExportScope('filtered')}
+                    className="text-amber-500 focus:ring-amber-500"
+                  />
+                  <span>Semua Hasil Filter ({reports.length})</span>
+                </label>
+
+                <label
+                  className={`flex items-center space-x-2.5 p-2.5 rounded-xl border cursor-pointer transition ${
+                    exportScope === 'page'
+                      ? 'bg-slate-800 border-amber-500/60 text-white font-semibold'
+                      : 'bg-slate-850/40 border-slate-800 text-slate-400 hover:border-slate-700'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="exportScope"
+                    checked={exportScope === 'page'}
+                    onChange={() => setExportScope('page')}
+                    className="text-amber-500 focus:ring-amber-500"
+                  />
+                  <span>Halaman Ini Saja ({paginatedReports.length})</span>
+                </label>
+              </div>
+            </div>
+
+            {/* CSV Delimiter (Only shown when CSV is chosen) */}
+            {exportFormat === 'csv' && (
+              <div className="space-y-2 p-3 rounded-xl bg-slate-850/70 border border-slate-800">
+                <label className="text-xs font-bold text-slate-300 block">Pemisah Kolom CSV (Delimiter):</label>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <label className="flex items-center space-x-2 cursor-pointer text-slate-300">
+                    <input
+                      type="radio"
+                      name="csvDelim"
+                      checked={exportDelimiter === ';'}
+                      onChange={() => setExportDelimiter(';')}
+                      className="text-sky-500 focus:ring-sky-500"
+                    />
+                    <span>Titik Koma ( ; ) - Rekomendasi Excel ID</span>
+                  </label>
+                  <label className="flex items-center space-x-2 cursor-pointer text-slate-300">
+                    <input
+                      type="radio"
+                      name="csvDelim"
+                      checked={exportDelimiter === ','}
+                      onChange={() => setExportDelimiter(',')}
+                      className="text-sky-500 focus:ring-sky-500"
+                    />
+                    <span>Koma ( , ) - Standar Internasional</span>
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {/* Options Toggles */}
+            <div className="space-y-2.5 text-xs text-slate-300">
+              <label className="flex items-center space-x-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={exportIncludeSummary}
+                  onChange={(e) => setExportIncludeSummary(e.target.checked)}
+                  className="rounded border-slate-700 text-amber-500 focus:ring-amber-500 h-4 w-4"
+                />
+                <span>Sertakan baris TOTAL agregat di akhir tabel</span>
+              </label>
+
+              {exportFormat === 'xlsx' && (
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={exportIncludeRecap}
+                    onChange={(e) => setExportIncludeRecap(e.target.checked)}
+                    className="rounded border-slate-700 text-emerald-500 focus:ring-emerald-500 h-4 w-4"
+                  />
+                  <span>Sertakan Sheet tambahan "Rekap per Streamer" (Ranking & Rata-rata)</span>
+                </label>
+              )}
+            </div>
+
+            {/* Custom Filename */}
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-300 block">Nama File:</label>
+              <input
+                type="text"
+                value={customExportName}
+                onChange={(e) => setCustomExportName(e.target.value)}
+                placeholder={getGeneratedExportName(exportFormat)}
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-amber-500 outline-none"
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+              <div className="text-[11px] text-slate-400">
+                <strong className="text-slate-200">
+                  {exportScope === 'page' ? paginatedReports.length : reports.length} baris
+                </strong>{' '}
+                akan diexport
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setIsExportModalOpen(false)}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-semibold hover:bg-slate-750 transition"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExecuteModalExport}
+                  className={`flex items-center space-x-1.5 px-4 py-2 text-white font-bold text-xs rounded-xl shadow-lg transition cursor-pointer ${
+                    exportFormat === 'xlsx'
+                      ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/20'
+                      : 'bg-sky-600 hover:bg-sky-500 shadow-sky-600/20'
+                  }`}
+                >
+                  <Download className="h-4 w-4" />
+                  <span>Download {exportFormat === 'xlsx' ? 'Excel' : 'CSV'}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -11,8 +11,8 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 // Enable CORS and handle preflight OPTIONS
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-HTTP-Method-Override');
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
@@ -118,16 +118,23 @@ app.post('/api/streamers', (req: Request, res: Response) => {
   }
 });
 
-app.put('/api/streamers/:id', (req: Request, res: Response) => {
+// Update streamer handler (supports PUT, PATCH, and POST for proxy compatibility)
+const handleUpdateStreamer = (req: Request, res: Response) => {
   try {
     const updated = storage.updateStreamer(req.params.id, req.body);
     res.json({ success: true, data: updated });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
   }
-});
+};
 
-app.delete('/api/streamers/:id', (req: Request, res: Response) => {
+app.put('/api/streamers/:id', handleUpdateStreamer);
+app.patch('/api/streamers/:id', handleUpdateStreamer);
+app.post('/api/streamers/:id/update', handleUpdateStreamer);
+app.post('/api/streamers/:id', handleUpdateStreamer);
+
+// Delete streamer handler (supports DELETE and POST for proxy compatibility)
+const handleDeleteStreamer = (req: Request, res: Response) => {
   try {
     const success = storage.deleteStreamer(req.params.id);
     if (!success) {
@@ -137,7 +144,10 @@ app.delete('/api/streamers/:id', (req: Request, res: Response) => {
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
-});
+};
+
+app.delete('/api/streamers/:id', handleDeleteStreamer);
+app.post('/api/streamers/:id/delete', handleDeleteStreamer);
 
 // ==========================================
 // 3. LIVE REPORTS API
@@ -202,16 +212,23 @@ app.post('/api/reports', (req: Request, res: Response) => {
   }
 });
 
-app.put('/api/reports/:id', (req: Request, res: Response) => {
+// Update report handler (supports PUT, PATCH, and POST for proxy compatibility)
+const handleUpdateReport = (req: Request, res: Response) => {
   try {
     const updated = storage.updateReport(req.params.id, req.body);
     res.json({ success: true, data: updated });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
   }
-});
+};
 
-app.delete('/api/reports/:id', (req: Request, res: Response) => {
+app.put('/api/reports/:id', handleUpdateReport);
+app.patch('/api/reports/:id', handleUpdateReport);
+app.post('/api/reports/:id/update', handleUpdateReport);
+app.post('/api/reports/:id', handleUpdateReport);
+
+// Delete report handler (supports DELETE and POST for proxy compatibility)
+const handleDeleteReport = (req: Request, res: Response) => {
   try {
     const success = storage.deleteReport(req.params.id);
     if (!success) {
@@ -221,7 +238,10 @@ app.delete('/api/reports/:id', (req: Request, res: Response) => {
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
-});
+};
+
+app.delete('/api/reports/:id', handleDeleteReport);
+app.post('/api/reports/:id/delete', handleDeleteReport);
 
 // ==========================================
 // 4. ANALYTICS API

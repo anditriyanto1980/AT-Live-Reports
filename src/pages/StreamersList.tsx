@@ -16,6 +16,8 @@ import {
   Save,
   Radio,
   Sparkles,
+  RefreshCw,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface StreamersListProps {
@@ -40,8 +42,21 @@ export const StreamersList: React.FC<StreamersListProps> = ({ onNavigate }) => {
   const [formError, setFormError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState<boolean>(false);
 
-  // Delete modal
+  // Delete modal state
   const [deletingStreamer, setDeletingStreamer] = useState<Streamer | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Toast notification
+  const [notification, setNotification] = useState<string | null>(null);
+
+  // Auto-dismiss notification
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => setNotification(null), 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
 
   const loadData = async () => {
     setLoading(true);
@@ -101,16 +116,18 @@ export const StreamersList: React.FC<StreamersListProps> = ({ onNavigate }) => {
     try {
       if (editingStreamer) {
         await updateStreamer(editingStreamer.id, {
-          name: formName,
-          username: formUsername,
+          name: formName.trim(),
+          username: formUsername.trim(),
           status: formStatus,
         });
+        setNotification(`Streamer "${formName.trim()}" berhasil diperbarui.`);
       } else {
         await createStreamer({
-          name: formName,
-          username: formUsername,
+          name: formName.trim(),
+          username: formUsername.trim(),
           status: formStatus,
         });
+        setNotification(`Streamer "${formName.trim()}" berhasil ditambahkan.`);
       }
       setIsModalOpen(false);
       await loadData();
@@ -124,21 +141,40 @@ export const StreamersList: React.FC<StreamersListProps> = ({ onNavigate }) => {
   const handleToggleStatus = async (streamer: Streamer) => {
     const newStatus = streamer.status === 'active' ? 'inactive' : 'active';
     try {
-      await updateStreamer(streamer.id, { status: newStatus });
-      loadData();
+      await updateStreamer(streamer.id, {
+        name: streamer.name,
+        username: streamer.username,
+        status: newStatus,
+      });
+      setNotification(
+        `Status ${streamer.name} berhasil diubah menjadi ${newStatus === 'active' ? 'Aktif' : 'Nonaktif'}.`
+      );
+      await loadData();
     } catch (err: any) {
-      alert(err.message || 'Gagal mengubah status streamer.');
+      setNotification(`Gagal mengubah status: ${err.message}`);
     }
+  };
+
+  const openDeleteModal = (streamer: Streamer) => {
+    setDeletingStreamer(streamer);
+    setDeleteError(null);
+    setIsDeleting(false);
   };
 
   const handleDelete = async () => {
     if (!deletingStreamer) return;
+    setIsDeleting(true);
+    setDeleteError(null);
     try {
+      const name = deletingStreamer.name;
       await deleteStreamer(deletingStreamer.id);
       setDeletingStreamer(null);
-      loadData();
+      setNotification(`Streamer "${name}" berhasil dihapus.`);
+      await loadData();
     } catch (err: any) {
-      alert(err.message || 'Gagal menghapus streamer.');
+      setDeleteError(err.message || 'Gagal menghapus streamer.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -273,7 +309,7 @@ export const StreamersList: React.FC<StreamersListProps> = ({ onNavigate }) => {
                       <Edit2 className="h-4 w-4" />
                     </button>
                     <button
-                      onClick={() => setDeletingStreamer(streamer)}
+                      onClick={() => openDeleteModal(streamer)}
                       title="Hapus Streamer"
                       className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition"
                     >
@@ -373,27 +409,69 @@ export const StreamersList: React.FC<StreamersListProps> = ({ onNavigate }) => {
       {deletingStreamer && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
-            <h3 className="font-bold text-base text-white">Konfirmasi Hapus Streamer</h3>
+            <div className="flex items-center space-x-2 text-rose-400">
+              <AlertTriangle className="h-5 w-5" />
+              <h3 className="font-bold text-base text-white">Konfirmasi Hapus Streamer</h3>
+            </div>
             <p className="text-xs text-slate-300 leading-relaxed">
               Apakah Anda yakin ingin menghapus streamer{' '}
               <strong className="text-white">{deletingStreamer.name}</strong>? Seluruh data laporan
-              yang terkait dengan streamer ini juga akan dihapus.
+              yang terkait dengan streamer ini juga akan dihapus secara permanen.
             </p>
+
+            {deleteError && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs rounded-xl flex items-start space-x-2">
+                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>{deleteError}</span>
+              </div>
+            )}
+
             <div className="flex items-center justify-end space-x-3 pt-2">
               <button
-                onClick={() => setDeletingStreamer(null)}
-                className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-semibold hover:bg-slate-700"
+                type="button"
+                onClick={() => {
+                  setDeletingStreamer(null);
+                  setDeleteError(null);
+                }}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-semibold hover:bg-slate-700 disabled:opacity-50 cursor-pointer"
               >
                 Batal
               </button>
               <button
+                type="button"
                 onClick={handleDelete}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold"
+                disabled={isDeleting}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 cursor-pointer"
               >
-                Hapus Streamer
+                {isDeleting ? (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    <span>Menghapus...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>Hapus Streamer</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* TOAST NOTIFICATION */}
+      {notification && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center space-x-3 bg-slate-900 border border-emerald-500/40 text-emerald-400 px-4 py-3 rounded-2xl shadow-2xl backdrop-blur-md">
+          <CheckCircle className="h-5 w-5 text-emerald-400 shrink-0" />
+          <span className="text-xs font-semibold text-white">{notification}</span>
+          <button
+            onClick={() => setNotification(null)}
+            className="text-slate-400 hover:text-white p-1 rounded-lg transition"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
     </div>

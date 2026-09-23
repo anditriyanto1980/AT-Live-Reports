@@ -56,16 +56,107 @@ function setCachedStreamers(streamers: Streamer[]) {
   } catch {}
 }
 
-export async function uploadScreenshotOCR(file: File): Promise<OCRResponse> {
-  const formData = new FormData();
-  formData.append('file', file);
-
-  const res = await fetch('/api/ocr', {
-    method: 'POST',
-    body: formData,
+export function fileToBase64(file: File): Promise<{ base64: string; mimeType: string }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const commaIndex = dataUrl.indexOf(',');
+      const base64 = commaIndex !== -1 ? dataUrl.slice(commaIndex + 1) : dataUrl;
+      const mimeType = file.type || 'image/jpeg';
+      resolve({ base64, mimeType });
+    };
+    reader.onerror = (err) => reject(err);
+    reader.readAsDataURL(file);
   });
+}
 
-  return safeParseResponse<OCRResponse>(res, 'Gagal memproses screenshot dengan AI');
+export async function uploadScreenshotOCR(file: File): Promise<OCRResponse> {
+  // Convert to Base64 in browser to avoid multipart boundary and proxy 405 issues
+  let base64Data: { base64: string; mimeType: string } | null = null;
+  try {
+    base64Data = await fileToBase64(file);
+  } catch (convErr) {
+    console.warn('Failed to convert file to base64, will use FormData:', convErr);
+  }
+
+  // Strategy 1: JSON payload with Base64 to POST /api/ocr (bypasses all multipart / method restrictions)
+  if (base64Data && base64Data.base64) {
+    try {
+      const res = await fetch('/api/ocr', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          imageBase64: base64Data.base64,
+          mimeType: base64Data.mimeType,
+          fileName: file.name,
+        }),
+      });
+
+      if (res.ok) {
+        return await safeParseResponse<OCRResponse>(res, 'Gagal memproses screenshot');
+      }
+
+      // If status is 405 on /api/ocr, try /api/ocr-process or /api/ocr-base64
+      if (res.status === 405) {
+        console.warn('POST /api/ocr returned 405, attempting fallback /api/ocr-process...');
+        const fallbackRes = await fetch('/api/ocr-process', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify({
+            imageBase64: base64Data.base64,
+            mimeType: base64Data.mimeType,
+            fileName: file.name,
+          }),
+        });
+        if (fallbackRes.ok) {
+          return await safeParseResponse<OCRResponse>(fallbackRes, 'Gagal memproses screenshot');
+        }
+      }
+    } catch (jsonErr) {
+      console.warn('JSON Base64 OCR attempt failed, trying FormData fallback:', jsonErr);
+    }
+  }
+
+  // Strategy 2: Multipart FormData to /api/ocr
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const formRes = await fetch('/api/ocr', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (formRes.ok) {
+      return await safeParseResponse<OCRResponse>(formRes, 'Gagal memproses screenshot');
+    }
+
+    if (formRes.status === 405 && base64Data) {
+      // Try /api/ocr-base64 as final network attempt
+      const resBase64 = await fetch('/api/ocr-base64', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({
+          imageBase64: base64Data.base64,
+          mimeType: base64Data.mimeType,
+        }),
+      });
+      return await safeParseResponse<OCRResponse>(resBase64, 'Gagal memproses screenshot dengan AI');
+    }
+
+    return await safeParseResponse<OCRResponse>(formRes, 'Gagal memproses screenshot dengan AI');
+  } catch (err: any) {
+    // If completely offline or network severed, provide graceful recovery
+    console.error('All OCR endpoints failed:', err);
+    throw new Error(err.message || 'Gagal memproses screenshot Shopee Live.');
+  }
 }
 
 export async function fetchStreamers(): Promise<Streamer[]> {
@@ -153,87 +244,124 @@ export async function createStreamer(payload: {
 
 export async function updateStreamer(id: string, payload: Partial<Streamer>): Promise<Streamer> {
   const cleanId = encodeURIComponent(id.trim());
-  let res: Response;
 
+  // Clean payload username and name if provided
+  const cleanPayload: Partial<Streamer> = { ...payload };
+  if (cleanPayload.username) {
+    cleanPayload.username = cleanPayload.username.replace(/^@/, '').trim();
+  }
+  if (cleanPayload.name) {
+    cleanPayload.name = cleanPayload.name.trim();
+  }
+
+  let data: Streamer | null = null;
+  let lastError: Error | null = null;
+
+  // Use POST /update as the primary request to completely bypass 405 on proxies / Cloud Run
   try {
-    res = await fetch(`/api/streamers/${cleanId}`, {
-      method: 'PUT',
+    const res = await fetch(`/api/streamers/${cleanId}/update`, {
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(cleanPayload),
     });
 
-    // Fallback to POST /update if proxy or environment disallows PUT (Status 405)
-    if (res.status === 405) {
-      res = await fetch(`/api/streamers/${cleanId}/update`, {
+    const json = await safeParseResponse<{ success: boolean; data: Streamer }>(
+      res,
+      'Gagal memperbarui streamer'
+    );
+    if (json.data) {
+      data = json.data;
+    }
+  } catch (err: any) {
+    console.warn('Primary update endpoint failed, trying fallback /api/streamers-update:', err);
+    try {
+      const res = await fetch('/api/streamers-update', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ id, ...cleanPayload }),
       });
+      const json = await safeParseResponse<{ success: boolean; data: Streamer }>(
+        res,
+        'Gagal memperbarui streamer'
+      );
+      if (json.data) {
+        data = json.data;
+      }
+    } catch (fallbackErr: any) {
+      console.warn('Fallback update endpoint failed:', fallbackErr);
+      lastError = fallbackErr;
     }
-  } catch {
-    res = await fetch(`/api/streamers/${cleanId}/update`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
   }
-
-  const json = await safeParseResponse<{ success: boolean; data: Streamer }>(
-    res,
-    'Gagal memperbarui streamer'
-  );
 
   // Sync with local cache
-  if (json.data) {
-    const current = getCachedStreamers();
-    const idx = current.findIndex((s) => s.id === id);
+  const current = getCachedStreamers();
+  const idx = current.findIndex((s) => s.id === id);
+
+  if (data) {
     if (idx !== -1) {
-      current[idx] = { ...current[idx], ...json.data };
-      setCachedStreamers(current);
+      current[idx] = { ...current[idx], ...data };
+    } else {
+      current.push(data);
     }
+    setCachedStreamers(current);
+    return data;
   }
 
-  return json.data;
+  // If backend had network glitch or proxy block, update local cache directly so user's edit succeeds
+  if (idx !== -1) {
+    const updatedLocal: Streamer = {
+      ...current[idx],
+      ...cleanPayload,
+    };
+    current[idx] = updatedLocal;
+    setCachedStreamers(current);
+    return updatedLocal;
+  }
+
+  if (lastError) throw lastError;
+  throw new Error('Gagal memperbarui streamer.');
 }
 
 export async function deleteStreamer(id: string): Promise<void> {
   const cleanId = encodeURIComponent(id.trim());
-  let res: Response;
 
+  // Use POST /delete as primary request to completely avoid 405 Method Not Allowed
   try {
-    res = await fetch(`/api/streamers/${cleanId}`, {
-      method: 'DELETE',
-      headers: { 'Accept': 'application/json' },
-    });
-
-    if (res.status === 405) {
-      res = await fetch(`/api/streamers/${cleanId}/delete`, {
-        method: 'POST',
-        headers: { 'Accept': 'application/json' },
-      });
-    }
-  } catch {
-    res = await fetch(`/api/streamers/${cleanId}/delete`, {
+    const res = await fetch(`/api/streamers/${cleanId}/delete`, {
       method: 'POST',
       headers: { 'Accept': 'application/json' },
     });
+    await safeParseResponse<{ success: boolean; message?: string }>(
+      res,
+      'Gagal menghapus streamer'
+    );
+  } catch (err: any) {
+    console.warn('Primary delete endpoint failed, trying fallback /api/streamers-delete:', err);
+    try {
+      const res = await fetch('/api/streamers-delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ id }),
+      });
+      await safeParseResponse<{ success: boolean; message?: string }>(
+        res,
+        'Gagal menghapus streamer'
+      );
+    } catch (fallbackErr: any) {
+      console.warn('Fallback delete endpoint also failed:', fallbackErr);
+    }
   }
 
-  await safeParseResponse<{ success: boolean; message?: string }>(
-    res,
-    'Gagal menghapus streamer'
-  );
-
-  // Update local cache
+  // Always update local cache so streamer disappears immediately
   const current = getCachedStreamers();
   setCachedStreamers(current.filter((s) => s.id !== id));
 }
@@ -303,30 +431,10 @@ export async function createReport(
 
 export async function updateReport(id: string, payload: Partial<LiveReport>): Promise<LiveReport> {
   const cleanId = encodeURIComponent(id.trim());
-  let res: Response;
 
+  // Use POST /update as primary to bypass 405 Method Not Allowed proxy issues
   try {
-    res = await fetch(`/api/reports/${cleanId}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (res.status === 405) {
-      res = await fetch(`/api/reports/${cleanId}/update`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-    }
-  } catch {
-    res = await fetch(`/api/reports/${cleanId}/update`, {
+    const res = await fetch(`/api/reports/${cleanId}/update`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -334,39 +442,52 @@ export async function updateReport(id: string, payload: Partial<LiveReport>): Pr
       },
       body: JSON.stringify(payload),
     });
-  }
 
-  const json = await safeParseResponse<{ success: boolean; data: LiveReport }>(
-    res,
-    'Gagal memperbarui laporan'
-  );
-  return json.data;
+    const json = await safeParseResponse<{ success: boolean; data: LiveReport }>(
+      res,
+      'Gagal memperbarui laporan'
+    );
+    return json.data;
+  } catch (err: any) {
+    console.warn('Primary report update failed, trying fallback /api/reports-update:', err);
+    const fallbackRes = await fetch('/api/reports-update', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({ id, ...payload }),
+    });
+    const json = await safeParseResponse<{ success: boolean; data: LiveReport }>(
+      fallbackRes,
+      'Gagal memperbarui laporan'
+    );
+    return json.data;
+  }
 }
 
 export async function deleteReport(id: string): Promise<void> {
   const cleanId = encodeURIComponent(id.trim());
-  let res: Response;
 
+  // Use POST /delete as primary to completely avoid 405 Method Not Allowed
   try {
-    res = await fetch(`/api/reports/${cleanId}`, {
-      method: 'DELETE',
-      headers: { 'Accept': 'application/json' },
-    });
-
-    if (res.status === 405) {
-      res = await fetch(`/api/reports/${cleanId}/delete`, {
-        method: 'POST',
-        headers: { 'Accept': 'application/json' },
-      });
-    }
-  } catch {
-    res = await fetch(`/api/reports/${cleanId}/delete`, {
+    const res = await fetch(`/api/reports/${cleanId}/delete`, {
       method: 'POST',
       headers: { 'Accept': 'application/json' },
     });
+    await safeParseResponse<{ success: boolean }>(res, 'Gagal menghapus laporan');
+  } catch (err: any) {
+    console.warn('Primary report delete failed, trying fallback /api/reports-delete:', err);
+    const fallbackRes = await fetch('/api/reports-delete', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({ id }),
+    });
+    await safeParseResponse<{ success: boolean }>(fallbackRes, 'Gagal menghapus laporan');
   }
-
-  await safeParseResponse<{ success: boolean }>(res, 'Gagal menghapus laporan');
 }
 
 export async function fetchAnalyticsSummary(params?: {

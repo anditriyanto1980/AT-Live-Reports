@@ -307,7 +307,7 @@ export const ImportReport: React.FC<ImportReportProps> = ({ onNavigate }) => {
           comments: Number(result.data.comments?.value || 0),
           add_to_cart: Number(result.data.add_to_cart?.value || 0),
           views: Number(result.data.views?.value || 0),
-          avg_watch_duration: String(result.data.avg_watch_duration?.value || '00:00:35'),
+          avg_watch_duration: String(result.data.avg_watch_duration?.value || '00:00:00'),
           comment_rate: Number(result.data.comment_rate?.value || 0),
           sales_per_mille: Number(result.data.sales_per_mille?.value || 0),
           orders: Number(result.data.orders?.value || 0),

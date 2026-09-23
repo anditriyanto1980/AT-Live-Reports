@@ -161,7 +161,7 @@ export const ReportsList: React.FC<ReportsListProps> = ({ onNavigate }) => {
       setNotification('Laporan berhasil dihapus.');
       loadData();
     } catch (err: any) {
-      alert(err.message || 'Gagal menghapus laporan.');
+      setNotification(err.message || 'Gagal menghapus laporan.');
     } finally {
       setIsDeleting(false);
     }
@@ -181,7 +181,7 @@ export const ReportsList: React.FC<ReportsListProps> = ({ onNavigate }) => {
   // Quick Excel Export (Filtered data with summary and recap sheets)
   const handleExportExcel = () => {
     if (reports.length === 0) {
-      alert('Tidak ada data laporan untuk diexport.');
+      setNotification('Tidak ada data laporan untuk diexport.');
       return;
     }
     const fileName = getGeneratedExportName('xlsx');
@@ -195,7 +195,7 @@ export const ReportsList: React.FC<ReportsListProps> = ({ onNavigate }) => {
   // Quick CSV Export (Filtered data with standard format)
   const handleExportCSV = () => {
     if (reports.length === 0) {
-      alert('Tidak ada data laporan untuk diexport.');
+      setNotification('Tidak ada data laporan untuk diexport.');
       return;
     }
     const fileName = getGeneratedExportName('csv');
@@ -210,7 +210,7 @@ export const ReportsList: React.FC<ReportsListProps> = ({ onNavigate }) => {
   const handleExecuteModalExport = () => {
     const targetData = exportScope === 'page' ? paginatedReports : reports;
     if (targetData.length === 0) {
-      alert('Tidak ada data laporan untuk diexport.');
+      setNotification('Tidak ada data laporan untuk diexport.');
       return;
     }
 

@@ -19,19 +19,20 @@ app.use((req, res, next) => {
   next();
 });
 
-// Parse JSON and urlencoded for API routes
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Parse JSON and urlencoded for API routes (allow 25MB for high-res screenshots Base64)
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
 // Multer in-memory storage (HARD REQUIREMENT: screenshot is only in RAM and deleted after OCR)
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
+    fileSize: 25 * 1024 * 1024, // 25MB limit
   },
   fileFilter: (_req, file, cb) => {
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-    if (allowedTypes.includes(file.mimetype.toLowerCase())) {
+    const mime = (file.mimetype || '').toLowerCase();
+    if (allowedTypes.includes(mime) || mime.startsWith('image/')) {
       cb(null, true);
     } else {
       cb(new Error('Format file tidak didukung. Harap upload format JPG, JPEG, PNG, atau WebP.'));
@@ -40,16 +41,43 @@ const upload = multer({
 });
 
 // ==========================================
-// 1. CANONICAL OCR ENDPOINT: POST /api/ocr
+// 1. ROBUST OCR ENDPOINTS: POST /api/ocr, /api/ocr-base64, /api/ocr-process
+// Supports both Multipart/form-data and JSON Base64 payloads
 // ==========================================
-app.post('/api/ocr', (req: Request, res: Response, next: NextFunction) => {
+const handleOCR = async (req: Request, res: Response) => {
+  // Strategy A: JSON payload with Base64 image
+  if (req.body && (req.body.imageBase64 || req.body.file || req.body.image)) {
+    try {
+      const rawBase64 = String(req.body.imageBase64 || req.body.file || req.body.image);
+      const cleanBase64 = rawBase64.includes(',') ? rawBase64.split(',')[1] : rawBase64;
+      const buffer = Buffer.from(cleanBase64, 'base64');
+      const mimeType = req.body.mimeType || 'image/jpeg';
+
+      const extractedData = await processShopeeScreenshot(buffer, mimeType);
+      buffer.fill(0); // Immediately purge buffer from RAM
+
+      return res.status(200).json({
+        success: true,
+        message: 'Screenshot berhasil diekstraksi secara semantik.',
+        data: extractedData,
+      });
+    } catch (aiErr: any) {
+      console.error('OCR JSON processing error:', aiErr);
+      return res.status(500).json({
+        success: false,
+        error: aiErr.message || 'Gagal memproses screenshot dengan Vision AI.',
+      });
+    }
+  }
+
+  // Strategy B: Multipart / FormData file upload
   upload.single('file')(req, res, async (err: any) => {
     if (err) {
       if (err instanceof multer.MulterError) {
         if (err.code === 'LIMIT_FILE_SIZE') {
           return res.status(400).json({
             success: false,
-            error: 'Ukuran file terlalu besar. Maksimal ukuran file adalah 10 MB.',
+            error: 'Ukuran file terlalu besar. Maksimal ukuran file adalah 25 MB.',
           });
         }
         return res.status(400).json({ success: false, error: `Upload error: ${err.message}` });
@@ -58,9 +86,28 @@ app.post('/api/ocr', (req: Request, res: Response, next: NextFunction) => {
     }
 
     if (!req.file || !req.file.buffer) {
+      // In case body was populated during form parsing
+      if (req.body && (req.body.imageBase64 || req.body.file)) {
+        try {
+          const rawBase64 = String(req.body.imageBase64 || req.body.file);
+          const cleanBase64 = rawBase64.includes(',') ? rawBase64.split(',')[1] : rawBase64;
+          const buffer = Buffer.from(cleanBase64, 'base64');
+          const mimeType = req.body.mimeType || 'image/jpeg';
+          const extractedData = await processShopeeScreenshot(buffer, mimeType);
+          buffer.fill(0);
+          return res.status(200).json({
+            success: true,
+            message: 'Screenshot berhasil diekstraksi secara semantik.',
+            data: extractedData,
+          });
+        } catch (aiErr: any) {
+          return res.status(500).json({ success: false, error: aiErr.message });
+        }
+      }
+
       return res.status(400).json({
         success: false,
-        error: 'File screenshot tidak ditemukan. Harap sertakan file pada field "file".',
+        error: 'File screenshot tidak ditemukan. Harap sertakan file screenshot.',
       });
     }
 
@@ -69,8 +116,7 @@ app.post('/api/ocr', (req: Request, res: Response, next: NextFunction) => {
       const extractedData = await processShopeeScreenshot(req.file.buffer, req.file.mimetype);
 
       // HARD REQUIREMENT: Screenshot memory buffer is purged immediately.
-      // Do NOT keep any reference or save image to database or filesystem.
-      req.file.buffer = Buffer.alloc(0);
+      req.file.buffer.fill(0);
       delete (req as any).file;
 
       return res.status(200).json({
@@ -79,9 +125,8 @@ app.post('/api/ocr', (req: Request, res: Response, next: NextFunction) => {
         data: extractedData,
       });
     } catch (aiErr: any) {
-      // Ensure memory cleanup on error as well
       if (req.file) {
-        req.file.buffer = Buffer.alloc(0);
+        req.file.buffer.fill(0);
         delete (req as any).file;
       }
       console.error('OCR processing failed:', aiErr);
@@ -91,6 +136,15 @@ app.post('/api/ocr', (req: Request, res: Response, next: NextFunction) => {
       });
     }
   });
+};
+
+// Mount OCR handlers on multiple paths for robust proxy and client compatibility
+app.post('/api/ocr', handleOCR);
+app.post('/api/ocr/', handleOCR);
+app.post('/api/ocr-process', handleOCR);
+app.post('/api/ocr-base64', handleOCR);
+app.get('/api/ocr', (_req: Request, res: Response) => {
+  res.json({ success: true, message: 'OCR endpoint is online and ready for POST requests.' });
 });
 
 // ==========================================
@@ -121,7 +175,11 @@ app.post('/api/streamers', (req: Request, res: Response) => {
 // Update streamer handler (supports PUT, PATCH, and POST for proxy compatibility)
 const handleUpdateStreamer = (req: Request, res: Response) => {
   try {
-    const updated = storage.updateStreamer(req.params.id, req.body);
+    const id = req.params.id || req.body?.id;
+    if (!id) {
+      return res.status(400).json({ success: false, error: 'ID Streamer wajib disertakan.' });
+    }
+    const updated = storage.updateStreamer(id, req.body);
     res.json({ success: true, data: updated });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
@@ -132,14 +190,16 @@ app.put('/api/streamers/:id', handleUpdateStreamer);
 app.patch('/api/streamers/:id', handleUpdateStreamer);
 app.post('/api/streamers/:id/update', handleUpdateStreamer);
 app.post('/api/streamers/:id', handleUpdateStreamer);
+app.post('/api/streamers-update', handleUpdateStreamer);
 
 // Delete streamer handler (supports DELETE and POST for proxy compatibility)
 const handleDeleteStreamer = (req: Request, res: Response) => {
   try {
-    const success = storage.deleteStreamer(req.params.id);
-    if (!success) {
-      return res.status(404).json({ success: false, error: 'Streamer tidak ditemukan.' });
+    const id = req.params.id || req.body?.id;
+    if (!id) {
+      return res.status(400).json({ success: false, error: 'ID Streamer wajib disertakan.' });
     }
+    storage.deleteStreamer(id);
     res.json({ success: true, message: 'Streamer berhasil dihapus.' });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -148,6 +208,7 @@ const handleDeleteStreamer = (req: Request, res: Response) => {
 
 app.delete('/api/streamers/:id', handleDeleteStreamer);
 app.post('/api/streamers/:id/delete', handleDeleteStreamer);
+app.post('/api/streamers-delete', handleDeleteStreamer);
 
 // ==========================================
 // 3. LIVE REPORTS API
@@ -215,7 +276,11 @@ app.post('/api/reports', (req: Request, res: Response) => {
 // Update report handler (supports PUT, PATCH, and POST for proxy compatibility)
 const handleUpdateReport = (req: Request, res: Response) => {
   try {
-    const updated = storage.updateReport(req.params.id, req.body);
+    const id = (req.params.id || req.body?.id || '').trim();
+    if (!id) {
+      return res.status(400).json({ success: false, error: 'ID laporan diperlukan.' });
+    }
+    const updated = storage.updateReport(id, req.body);
     res.json({ success: true, data: updated });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
@@ -226,14 +291,16 @@ app.put('/api/reports/:id', handleUpdateReport);
 app.patch('/api/reports/:id', handleUpdateReport);
 app.post('/api/reports/:id/update', handleUpdateReport);
 app.post('/api/reports/:id', handleUpdateReport);
+app.post('/api/reports-update', handleUpdateReport);
 
-// Delete report handler (supports DELETE and POST for proxy compatibility)
+// Delete report handler (supports DELETE and POST for proxy compatibility, idempotent)
 const handleDeleteReport = (req: Request, res: Response) => {
   try {
-    const success = storage.deleteReport(req.params.id);
-    if (!success) {
-      return res.status(404).json({ success: false, error: 'Laporan tidak ditemukan.' });
+    const id = (req.params.id || req.body?.id || '').trim();
+    if (!id) {
+      return res.status(400).json({ success: false, error: 'ID laporan diperlukan.' });
     }
+    storage.deleteReport(id);
     res.json({ success: true, message: 'Laporan berhasil dihapus.' });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -242,6 +309,7 @@ const handleDeleteReport = (req: Request, res: Response) => {
 
 app.delete('/api/reports/:id', handleDeleteReport);
 app.post('/api/reports/:id/delete', handleDeleteReport);
+app.post('/api/reports-delete', handleDeleteReport);
 
 // ==========================================
 // 4. ANALYTICS API

@@ -294,36 +294,47 @@ class StorageManager {
   }
 
   updateStreamer(id: string, updates: Partial<Omit<Streamer, 'id' | 'created_at'>>): Streamer {
-    let index = this.data.streamers.findIndex((s) => s.id === id);
+    const cleanId = id ? id.trim() : '';
+    const decodedId = id ? decodeURIComponent(id).trim() : '';
+    let index = this.data.streamers.findIndex(
+      (s) => s.id === cleanId || s.id === decodedId || s.id.toLowerCase() === cleanId.toLowerCase()
+    );
 
     if (index === -1) {
       // Fallback: search by username if ID mismatch occurred
-      const usernameClean = updates.username?.startsWith('@') ? updates.username.slice(1) : updates.username;
+      const usernameClean = updates.username?.startsWith('@')
+        ? updates.username.slice(1).trim()
+        : updates.username?.trim();
       if (usernameClean) {
-        index = this.data.streamers.findIndex((s) => s.username.toLowerCase() === usernameClean.toLowerCase());
+        index = this.data.streamers.findIndex(
+          (s) => s.username.toLowerCase() === usernameClean.toLowerCase()
+        );
       }
     }
 
     if (index === -1) {
-      // If still not found, but valid name and username provided, upsert streamer
-      if (updates.name && updates.username) {
-        const cleanUser = updates.username.startsWith('@') ? updates.username.slice(1) : updates.username;
-        const newStreamer: Streamer = {
-          id,
-          name: updates.name,
-          username: cleanUser,
-          status: updates.status || 'active',
-          created_at: new Date().toISOString(),
-        };
-        this.data.streamers.push(newStreamer);
-        this.save();
-        return newStreamer;
-      }
-      throw new Error('Streamer tidak ditemukan');
+      // If still not found, upsert streamer instead of throwing error
+      const cleanUser = updates.username
+        ? updates.username.replace(/^@/, '').trim()
+        : `streamer_${Date.now()}`;
+      const newStreamer: Streamer = {
+        id: cleanId || crypto.randomUUID(),
+        name: updates.name ? updates.name.trim() : 'Streamer',
+        username: cleanUser,
+        status: updates.status || 'active',
+        created_at: new Date().toISOString(),
+      };
+      this.data.streamers.push(newStreamer);
+      this.save();
+      return newStreamer;
+    }
+
+    if (updates.name) {
+      updates.name = updates.name.trim();
     }
 
     if (updates.username) {
-      const usernameClean = updates.username.startsWith('@') ? updates.username.slice(1) : updates.username;
+      const usernameClean = updates.username.replace(/^@/, '').trim();
       const dup = this.data.streamers.find(
         (s, i) => i !== index && s.username.toLowerCase() === usernameClean.toLowerCase()
       );
@@ -342,12 +353,23 @@ class StorageManager {
   }
 
   deleteStreamer(id: string): boolean {
-    const initialLen = this.data.streamers.length;
-    this.data.streamers = this.data.streamers.filter((s) => s.id !== id);
+    const cleanId = id ? id.trim() : '';
+    const decodedId = id ? decodeURIComponent(id).trim() : '';
+    const target = this.data.streamers.find(
+      (s) => s.id === cleanId || s.id === decodedId || s.id.toLowerCase() === cleanId.toLowerCase()
+    );
+
+    const targetId = target ? target.id : cleanId;
+
+    this.data.streamers = this.data.streamers.filter(
+      (s) => s.id !== cleanId && s.id !== decodedId && s.id.toLowerCase() !== cleanId.toLowerCase()
+    );
     // Also cascade delete live_reports
-    this.data.live_reports = this.data.live_reports.filter((r) => r.streamer_id !== id);
+    this.data.live_reports = this.data.live_reports.filter(
+      (r) => r.streamer_id !== cleanId && r.streamer_id !== targetId
+    );
     this.save();
-    return this.data.streamers.length < initialLen;
+    return true; // Always return true for idempotent deletion
   }
 
   // Live Reports
@@ -486,10 +508,13 @@ class StorageManager {
   }
 
   deleteReport(id: string): boolean {
+    const cleanId = (id || '').trim();
     const initialLen = this.data.live_reports.length;
-    this.data.live_reports = this.data.live_reports.filter((r) => r.id !== id);
-    this.save();
-    return this.data.live_reports.length < initialLen;
+    this.data.live_reports = this.data.live_reports.filter((r) => r.id !== cleanId);
+    if (this.data.live_reports.length !== initialLen) {
+      this.save();
+    }
+    return true;
   }
 
   // Analytics

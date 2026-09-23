@@ -236,7 +236,7 @@ export function exportReportsToCSV(
   const rows = buildExportRows(reports, options);
 
   if (rows.length === 0) {
-    alert('Tidak ada data laporan untuk diexport.');
+    console.warn('Tidak ada data laporan untuk diexport.');
     return;
   }
 

@@ -326,7 +326,22 @@ export const ImportReport: React.FC<ImportReportProps> = ({ onNavigate }) => {
         throw new Error(result.error || 'Ekstraksi AI tidak menghasilkan data terstruktur.');
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Gagal memproses screenshot Shopee Live.');
+      let msg = 'Gagal memproses screenshot Shopee Live.';
+      if (typeof err === 'string') {
+        msg = err;
+      } else if (typeof err?.message === 'string' && err.message !== '[object Object]') {
+        msg = err.message;
+      } else if (typeof err?.error === 'string') {
+        msg = err.error;
+      } else if (typeof err?.error?.message === 'string') {
+        msg = err.error.message;
+      } else {
+        try {
+          const str = JSON.stringify(err);
+          if (str && str !== '{}') msg = str;
+        } catch {}
+      }
+      setErrorMessage(msg);
     } finally {
       setIsAnalyzing(false);
       setAnalysisStep('');

@@ -1,17 +1,29 @@
 import { GoogleGenAI } from '@google/genai';
 import { OCRResultData } from '../types';
 
-// Initialize Gemini client strictly on server-side
-const apiKey = process.env.GEMINI_API_KEY || '';
+// Initialize Gemini client lazily to prevent module evaluation crashes on serverless platforms
+function getAiClient(): GoogleGenAI {
+  const apiKey =
+    process.env.GEMINI_API_KEY ||
+    process.env.VITE_GEMINI_API_KEY ||
+    process.env.GOOGLE_API_KEY ||
+    '';
 
-const ai = new GoogleGenAI({
-  apiKey,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
+  if (!apiKey) {
+    throw new Error(
+      'GEMINI_API_KEY belum dikonfigurasi di Environment Variables Vercel. Harap tambahkan di Project Settings -> Environment Variables.'
+    );
+  }
+
+  return new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      },
     },
-  },
-});
+  });
+}
 
 // Candidate models in priority order.
 // gemini-2.5-flash is primary because of its exceptional vision accuracy and low latency.
@@ -26,10 +38,7 @@ export async function processShopeeScreenshot(
   imageBuffer: Buffer,
   mimeType: string
 ): Promise<OCRResultData> {
-  if (!apiKey) {
-    throw new Error('GEMINI_API_KEY belum dikonfigurasi pada server environment.');
-  }
-
+  const ai = getAiClient();
   const base64Data = imageBuffer.toString('base64');
 
   const systemPrompt = `Anda adalah spesialis Vision AI dan OCR analitik data Shopee Live profesional.

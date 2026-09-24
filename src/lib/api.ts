@@ -20,10 +20,19 @@ async function safeParseResponse<T = any>(res: Response, defaultErrorMsg = 'Perm
   }
 
   if (!res.ok) {
-    const errorMsg =
-      json?.error ||
-      json?.message ||
-      (text && text.length < 200 && !text.includes('<!doctype') ? text : `${defaultErrorMsg} (Status ${res.status})`);
+    let errorMsg = defaultErrorMsg;
+    if (typeof json?.error === 'string') {
+      errorMsg = json.error;
+    } else if (typeof json?.error?.message === 'string') {
+      errorMsg = json.error.message;
+    } else if (typeof json?.message === 'string') {
+      errorMsg = json.message;
+    } else if (text && text.length < 300 && !text.includes('<!doctype') && !text.includes('<html')) {
+      errorMsg = text;
+    } else {
+      errorMsg = `${defaultErrorMsg} (Status ${res.status})`;
+    }
+
     const error: any = new Error(errorMsg);
     if (res.status === 409 && json?.existingReport) {
       error.isDuplicate = true;

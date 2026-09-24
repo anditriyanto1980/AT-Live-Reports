@@ -8,6 +8,7 @@ import { StreamersList } from './pages/StreamersList';
 import { StreamerDetail } from './pages/StreamerDetail';
 import { Settings } from './pages/Settings';
 import { LoginPage } from './pages/LoginPage';
+import { Diagnostics } from './pages/Diagnostics';
 
 function MainApp() {
   const { isAuthenticated } = useAuth();
@@ -47,6 +48,7 @@ function MainApp() {
         {currentTab === 'streamer-detail' && (
           <StreamerDetail streamerId={activeStreamerId} onNavigate={handleNavigate} />
         )}
+        {currentTab === 'diagnostics' && <Diagnostics />}
         {currentTab === 'settings' && <Settings />}
         {currentTab === 'login' && <LoginPage onSuccess={() => setCurrentTab('dashboard')} />}
       </main>

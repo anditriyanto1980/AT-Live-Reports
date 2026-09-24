@@ -11,6 +11,7 @@ import {
   ChevronDown,
   LogOut,
   ShieldAlert,
+  Activity,
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -27,6 +28,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, setCurrentTab }) => 
     { id: 'import', label: 'Import Laporan', icon: Upload, highlight: true },
     { id: 'reports', label: 'Data Laporan', icon: FileSpreadsheet },
     { id: 'streamers', label: 'Streamer', icon: Users },
+    { id: 'diagnostics', label: 'Diagnostik API', icon: Activity },
     { id: 'settings', label: 'Supabase & Database', icon: Database },
   ];
 

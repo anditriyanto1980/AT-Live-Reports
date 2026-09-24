@@ -28,6 +28,7 @@ import {
   Clock,
   Zap,
   Key,
+  Activity,
 } from 'lucide-react';
 
 interface ImportReportProps {
@@ -513,21 +514,31 @@ export const ImportReport: React.FC<ImportReportProps> = ({ onNavigate }) => {
             </p>
           </div>
 
-          <button
-            onClick={() => setShowKeyModal(true)}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition flex items-center space-x-2 ${
-              getClientGeminiApiKey()
-                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20'
-                : 'bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20'
-            }`}
-          >
-            <Key className="h-4 w-4" />
-            <span>
-              {getClientGeminiApiKey()
-                ? '✓ Kunci Gemini Browser: Aktif'
-                : '⚡ Atur Kunci Gemini (Bypass Vercel)'}
-            </span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => onNavigate('diagnostics')}
+              className="px-3.5 py-2 rounded-xl text-xs font-bold border border-slate-700 bg-slate-800/90 hover:bg-slate-700 text-cyan-300 transition flex items-center space-x-1.5 shadow"
+            >
+              <Activity className="h-4 w-4 text-cyan-400" />
+              <span>Diagnostik API</span>
+            </button>
+
+            <button
+              onClick={() => setShowKeyModal(true)}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition flex items-center space-x-2 ${
+                getClientGeminiApiKey()
+                  ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20'
+                  : 'bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20'
+              }`}
+            >
+              <Key className="h-4 w-4" />
+              <span>
+                {getClientGeminiApiKey()
+                  ? '✓ Kunci Gemini Browser: Aktif'
+                  : '⚡ Atur Kunci Gemini (Bypass Vercel)'}
+              </span>
+            </button>
+          </div>
         </div>
 
         {/* Hard Requirement Banner */}
@@ -554,7 +565,14 @@ export const ImportReport: React.FC<ImportReportProps> = ({ onNavigate }) => {
               <div className="text-xs text-rose-300/90 mt-0.5">{errorMessage}</div>
             </div>
           </div>
-          <div className="flex items-center space-x-2 shrink-0 pl-8 sm:pl-0">
+          <div className="flex flex-wrap items-center gap-2 shrink-0 pl-8 sm:pl-0">
+            <button
+              onClick={() => onNavigate('diagnostics')}
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shadow"
+            >
+              <Activity className="h-3.5 w-3.5 text-cyan-400" />
+              <span>Diagnostik 405</span>
+            </button>
             <button
               onClick={() => setShowKeyModal(true)}
               className="px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shadow"

@@ -159,13 +159,21 @@ const handleOCR = async (req: Request, res: Response) => {
 };
 
 // Mount OCR handlers
-app.post('/api/ocr', handleOCR);
-app.post('/api/ocr/', handleOCR);
-app.post('/api/ocr-process', handleOCR);
-app.post('/api/ocr-base64', handleOCR);
+const ocrPostPaths = [
+  '/api/ocr',
+  '/ocr',
+  '/api/ocr/',
+  '/ocr/',
+  '/api/ocr-process',
+  '/ocr-process',
+  '/api/ocr-base64',
+  '/ocr-base64',
+];
+app.post(ocrPostPaths, handleOCR);
 
 // GET /api/ocr MUST return HTTP 405 Method Not Allowed
-app.get('/api/ocr', (_req: Request, res: Response) => {
+const ocrGetPaths = ['/api/ocr', '/ocr', '/api/ocr/', '/ocr/'];
+app.get(ocrGetPaths, (_req: Request, res: Response) => {
   res.setHeader('Allow', 'POST');
   return res.status(405).json({
     success: false,
@@ -192,13 +200,12 @@ const handleResetData = (req: Request, res: Response) => {
   }
 };
 
-app.post('/api/reset', handleResetData);
-app.post('/api/reset-data', handleResetData);
+app.post(['/api/reset', '/reset', '/api/reset-data', '/reset-data'], handleResetData);
 
 // ==========================================
 // 2. STREAMERS API
 // ==========================================
-app.get('/api/streamers', (_req: Request, res: Response) => {
+app.get(['/api/streamers', '/streamers'], (_req: Request, res: Response) => {
   try {
     const streamers = storage.getStreamers();
     res.json({ success: true, data: streamers });
@@ -207,7 +214,7 @@ app.get('/api/streamers', (_req: Request, res: Response) => {
   }
 });
 
-app.post('/api/streamers', (req: Request, res: Response) => {
+app.post(['/api/streamers', '/streamers'], (req: Request, res: Response) => {
   try {
     const { name, username, status } = req.body;
     if (!name || !username) {
@@ -234,11 +241,9 @@ const handleUpdateStreamer = (req: Request, res: Response) => {
   }
 };
 
-app.put('/api/streamers/:id', handleUpdateStreamer);
-app.patch('/api/streamers/:id', handleUpdateStreamer);
-app.post('/api/streamers/:id/update', handleUpdateStreamer);
-app.post('/api/streamers/:id', handleUpdateStreamer);
-app.post('/api/streamers-update', handleUpdateStreamer);
+app.put(['/api/streamers/:id', '/streamers/:id'], handleUpdateStreamer);
+app.patch(['/api/streamers/:id', '/streamers/:id'], handleUpdateStreamer);
+app.post(['/api/streamers/:id/update', '/streamers/:id/update', '/api/streamers/:id', '/streamers/:id', '/api/streamers-update', '/streamers-update'], handleUpdateStreamer);
 
 // Delete streamer handler (supports DELETE and POST for proxy compatibility)
 const handleDeleteStreamer = (req: Request, res: Response) => {
@@ -254,14 +259,13 @@ const handleDeleteStreamer = (req: Request, res: Response) => {
   }
 };
 
-app.delete('/api/streamers/:id', handleDeleteStreamer);
-app.post('/api/streamers/:id/delete', handleDeleteStreamer);
-app.post('/api/streamers-delete', handleDeleteStreamer);
+app.delete(['/api/streamers/:id', '/streamers/:id'], handleDeleteStreamer);
+app.post(['/api/streamers/:id/delete', '/streamers/:id/delete', '/api/streamers-delete', '/streamers-delete'], handleDeleteStreamer);
 
 // ==========================================
 // 3. LIVE REPORTS API
 // ==========================================
-app.get('/api/reports', (req: Request, res: Response) => {
+app.get(['/api/reports', '/reports'], (req: Request, res: Response) => {
   try {
     const { streamer_id, startDate, endDate, search, sortBy, sortOrder } = req.query;
     const reports = storage.getReports({
@@ -278,7 +282,7 @@ app.get('/api/reports', (req: Request, res: Response) => {
   }
 });
 
-app.get('/api/reports/check-duplicate', (req: Request, res: Response) => {
+app.get(['/api/reports/check-duplicate', '/reports/check-duplicate'], (req: Request, res: Response) => {
   try {
     const { report_date, streamer_id, exclude_id } = req.query;
     if (!report_date || !streamer_id) {
@@ -299,7 +303,7 @@ app.get('/api/reports/check-duplicate', (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/reports', (req: Request, res: Response) => {
+app.post(['/api/reports', '/reports'], (req: Request, res: Response) => {
   try {
     const { overwrite, ...reportData } = req.body;
     if (!reportData.report_date || !reportData.streamer_id) {
@@ -335,11 +339,9 @@ const handleUpdateReport = (req: Request, res: Response) => {
   }
 };
 
-app.put('/api/reports/:id', handleUpdateReport);
-app.patch('/api/reports/:id', handleUpdateReport);
-app.post('/api/reports/:id/update', handleUpdateReport);
-app.post('/api/reports/:id', handleUpdateReport);
-app.post('/api/reports-update', handleUpdateReport);
+app.put(['/api/reports/:id', '/reports/:id'], handleUpdateReport);
+app.patch(['/api/reports/:id', '/reports/:id'], handleUpdateReport);
+app.post(['/api/reports/:id/update', '/reports/:id/update', '/api/reports/:id', '/reports/:id', '/api/reports-update', '/reports-update'], handleUpdateReport);
 
 // Delete report handler (supports DELETE and POST for proxy compatibility, idempotent)
 const handleDeleteReport = (req: Request, res: Response) => {
@@ -355,14 +357,13 @@ const handleDeleteReport = (req: Request, res: Response) => {
   }
 };
 
-app.delete('/api/reports/:id', handleDeleteReport);
-app.post('/api/reports/:id/delete', handleDeleteReport);
-app.post('/api/reports-delete', handleDeleteReport);
+app.delete(['/api/reports/:id', '/reports/:id'], handleDeleteReport);
+app.post(['/api/reports/:id/delete', '/reports/:id/delete', '/api/reports-delete', '/reports-delete'], handleDeleteReport);
 
 // ==========================================
 // 4. ANALYTICS API
 // ==========================================
-app.get('/api/analytics/summary', (req: Request, res: Response) => {
+app.get(['/api/analytics/summary', '/analytics/summary'], (req: Request, res: Response) => {
   try {
     const { streamer_id, startDate, endDate } = req.query;
     const analytics = storage.getAnalyticsSummary({
@@ -376,7 +377,7 @@ app.get('/api/analytics/summary', (req: Request, res: Response) => {
   }
 });
 
-app.get('/api/streamers/:id/analytics', (req: Request, res: Response) => {
+app.get(['/api/streamers/:id/analytics', '/streamers/:id/analytics'], (req: Request, res: Response) => {
   try {
     const streamer = storage.getStreamerById(req.params.id);
     if (!streamer) {
@@ -406,7 +407,7 @@ app.get('/api/streamers/:id/analytics', (req: Request, res: Response) => {
 });
 
 // Users list (for role testing and authentication mock/sync)
-app.get('/api/users', (_req: Request, res: Response) => {
+app.get(['/api/users', '/users'], (_req: Request, res: Response) => {
   try {
     const users = storage.getUsers();
     res.json({ success: true, data: users });
@@ -416,7 +417,7 @@ app.get('/api/users', (_req: Request, res: Response) => {
 });
 
 // System Status (Vercel / Supabase info)
-app.get('/api/status', (_req: Request, res: Response) => {
+app.get(['/api/status', '/status'], (_req: Request, res: Response) => {
   res.json({
     status: 'online',
     appName: 'SRA LIVE STREAM ANALYTICS',
@@ -455,7 +456,13 @@ async function startServer() {
   });
 }
 
-startServer().catch((err) => {
-  console.error('Failed to start server:', err);
-  process.exit(1);
-});
+// Only start the standalone server if NOT running inside Vercel Serverless Function
+if (!process.env.VERCEL) {
+  startServer().catch((err) => {
+    console.error('Failed to start server:', err);
+    process.exit(1);
+  });
+}
+
+export default app;
+

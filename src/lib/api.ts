@@ -71,11 +71,64 @@ export function fileToBase64(file: File): Promise<{ base64: string; mimeType: st
   });
 }
 
+// Automatically optimize oversized screenshots to ensure compliance with Vercel's 4.5MB Serverless payload limit
+async function optimizeScreenshotIfNeeded(file: File): Promise<File> {
+  if (typeof window === 'undefined' || !window.document || file.size <= 2.5 * 1024 * 1024) {
+    return file;
+  }
+  try {
+    return await new Promise<File>((resolve) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const maxDim = 1600;
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return resolve(file);
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(
+          (blob) => {
+            if (blob) {
+              const optFile = new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), {
+                type: 'image/jpeg',
+              });
+              resolve(optFile);
+            } else {
+              resolve(file);
+            }
+          },
+          'image/jpeg',
+          0.88
+        );
+      };
+      img.onerror = () => resolve(file);
+      img.src = url;
+    });
+  } catch {
+    return file;
+  }
+}
+
 export async function uploadScreenshotOCR(file: File): Promise<OCRResponse> {
+  const readyFile = await optimizeScreenshotIfNeeded(file);
+
   // Primary Canonical Approach: Standard Multipart/form-data via POST /api/ocr
   // NOTE: Do NOT set Content-Type header manually; browser automatically sets boundary!
   const formData = new FormData();
-  formData.append('file', file);
+  formData.append('file', readyFile);
 
   try {
     const res = await fetch('/api/ocr', {
@@ -85,12 +138,12 @@ export async function uploadScreenshotOCR(file: File): Promise<OCRResponse> {
 
     if (res.status === 405) {
       throw new Error(
-        'Endpoint OCR ditemukan tetapi HTTP method tidak sesuai. Pastikan aplikasi menggunakan POST /api/ocr.'
+        'Endpoint OCR ditemukan tetapi HTTP method tidak sesuai (405). Pastikan folder /api/ sudah di-push ke GitHub dan ter-deploy di Vercel.'
       );
     }
 
     if (res.status === 413) {
-      throw new Error('Ukuran file screenshot terlalu besar. Maksimal ukuran file adalah 25 MB.');
+      throw new Error('Ukuran file screenshot terlalu besar untuk serverless function (maks 4.5 MB).');
     }
 
     if (res.ok) {
@@ -102,7 +155,7 @@ export async function uploadScreenshotOCR(file: File): Promise<OCRResponse> {
     console.warn(`POST /api/ocr multipart returned status ${res.status}:`, errText);
 
     // Fallback: Convert to Base64 in browser
-    const base64Data = await fileToBase64(file);
+    const base64Data = await fileToBase64(readyFile);
     const jsonRes = await fetch('/api/ocr', {
       method: 'POST',
       headers: {
@@ -112,7 +165,7 @@ export async function uploadScreenshotOCR(file: File): Promise<OCRResponse> {
       body: JSON.stringify({
         imageBase64: base64Data.base64,
         mimeType: base64Data.mimeType,
-        fileName: file.name,
+        fileName: readyFile.name,
       }),
     });
 
@@ -120,7 +173,7 @@ export async function uploadScreenshotOCR(file: File): Promise<OCRResponse> {
   } catch (err: any) {
     if (err.message && err.message.includes('405')) {
       throw new Error(
-        'Endpoint OCR ditemukan tetapi HTTP method tidak sesuai. Pastikan aplikasi menggunakan POST /api/ocr.'
+        'Endpoint OCR ditemukan tetapi HTTP method tidak sesuai (405). Pastikan folder /api/ sudah di-push ke GitHub dan ter-deploy di Vercel.'
       );
     }
     throw err;

@@ -3,7 +3,9 @@ import path from 'path';
 import crypto from 'crypto';
 import { LiveReport, Streamer, User, DashboardSummary } from '../types';
 
-const DATA_DIR = path.resolve(process.cwd(), '.data');
+const DATA_DIR = process.env.VERCEL
+  ? path.resolve('/tmp', '.data')
+  : path.resolve(process.cwd(), '.data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 
 interface DatabaseSchema {

@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Database, ShieldCheck, Copy, Check, Server, Key, AlertCircle, FileCode } from 'lucide-react';
+import { Database, ShieldCheck, Copy, Check, Server, Key, AlertCircle, FileCode, RotateCcw, Trash2, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { fetchSystemStatus } from '../lib/api';
+import { ResetDataModal } from '../components/ResetDataModal';
 
 export const Settings: React.FC = () => {
   const [copied, setCopied] = useState<boolean>(false);
   const [systemStatus, setSystemStatus] = useState<any>(null);
+  const [isResetModalOpen, setIsResetModalOpen] = useState<boolean>(false);
+  const [resetSuccessMessage, setResetSuccessMessage] = useState<string | null>(null);
 
   useEffect(() => {
     fetchSystemStatus()
@@ -195,6 +198,46 @@ CREATE POLICY "Operators, Managers, and Admins can insert reports" ON live_repor
         </div>
       </div>
 
+      {/* SUCCESS NOTIFICATION */}
+      {resetSuccessMessage && (
+        <div className="p-4 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 flex items-center justify-between text-xs font-semibold animate-fadeIn">
+          <div className="flex items-center space-x-2">
+            <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0" />
+            <span>{resetSuccessMessage}</span>
+          </div>
+          <button onClick={() => setResetSuccessMessage(null)} className="text-emerald-400 hover:text-white ml-2">
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* MANAJEMEN & RESET DATA */}
+      <div className="bg-slate-900 border border-red-500/30 p-6 rounded-2xl shadow-xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <div className="flex items-center space-x-2 text-red-400 text-xs font-bold uppercase tracking-wider">
+              <RotateCcw className="h-4 w-4" />
+              <span>Manajemen Data Sistem</span>
+            </div>
+            <h2 className="text-lg font-black text-white mt-1">
+              Reset Semua Data Menjadi 0 (Nol)
+            </h2>
+            <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
+              Fitur ini akan mengosongkan seluruh riwayat laporan live streaming dan transaksi pendapatan.
+              Semua metrik pada Dashboard (Total Penjualan, Total Pesanan, Tayangan, dan Konversi) akan kembali menjadi <strong className="text-white">0</strong>.
+            </p>
+          </div>
+
+          <button
+            onClick={() => setIsResetModalOpen(true)}
+            className="flex items-center justify-center space-x-2 px-5 py-2.5 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-red-600/30 transition shrink-0 cursor-pointer"
+          >
+            <Trash2 className="h-4 w-4" />
+            <span>Reset Data Menjadi 0</span>
+          </button>
+        </div>
+      </div>
+
       {/* SQL SCHEMA VIEWER */}
       <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -250,6 +293,17 @@ CREATE TABLE IF NOT EXISTS live_reports (
           </pre>
         </div>
       </div>
+
+      {/* RESET DATA MODAL */}
+      <ResetDataModal
+        isOpen={isResetModalOpen}
+        onClose={() => setIsResetModalOpen(false)}
+        onResetComplete={(result) => {
+          setResetSuccessMessage(
+            `Berhasil! Seluruh data transaksi pendapatan dan ${result.reportsRemoved} laporan live streaming berhasil direset menjadi 0.`
+          );
+        }}
+      />
     </div>
   );
 };

@@ -4,6 +4,7 @@ import { fetchReports, fetchStreamers, deleteReport, updateReport } from '../lib
 import { formatRupiah, formatNumber, formatDateIndo, formatPercent } from '../lib/formatters';
 import { exportReportsToExcel, exportReportsToCSV } from '../lib/excelExport';
 import { useAuth } from '../context/AuthContext';
+import { ResetDataModal } from '../components/ResetDataModal';
 import {
   FileSpreadsheet,
   Search,
@@ -16,6 +17,7 @@ import {
   ArrowUpDown,
   Plus,
   RefreshCw,
+  RotateCcw,
   X,
   Save,
   AlertTriangle,
@@ -78,6 +80,7 @@ export const ReportsList: React.FC<ReportsListProps> = ({ onNavigate }) => {
   // Toast
   const [notification, setNotification] = useState<string | null>(null);
   const [copiedRowId, setCopiedRowId] = useState<string | null>(null);
+  const [isResetModalOpen, setIsResetModalOpen] = useState<boolean>(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -315,6 +318,16 @@ _SRA Live Stream Analytics_`;
           >
             <SlidersHorizontal className="h-3.5 w-3.5" />
             <span>Opsi Export</span>
+          </button>
+
+          {/* Reset Data (0) Button */}
+          <button
+            onClick={() => setIsResetModalOpen(true)}
+            className="flex items-center space-x-1.5 px-3 py-2 bg-red-950/40 hover:bg-red-900/60 text-red-300 hover:text-white font-bold text-xs rounded-xl border border-red-500/40 transition cursor-pointer"
+            title="Reset seluruh data laporan dan pendapatan menjadi 0"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            <span>Reset Data (0)</span>
           </button>
 
           {/* Tambah Laporan Button */}
@@ -1208,6 +1221,18 @@ _SRA Live Stream Analytics_`;
           </div>
         </div>
       )}
+
+      {/* RESET DATA MODAL */}
+      <ResetDataModal
+        isOpen={isResetModalOpen}
+        onClose={() => setIsResetModalOpen(false)}
+        onResetComplete={(result) => {
+          setNotification(
+            `Berhasil! Seluruh data laporan (${result.reportsRemoved} laporan) telah direset menjadi 0.`
+          );
+          loadData();
+        }}
+      />
     </div>
   );
 };

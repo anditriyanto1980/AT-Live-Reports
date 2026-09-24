@@ -41,11 +41,13 @@ const upload = multer({
 });
 
 // ==========================================
-// 1. ROBUST OCR ENDPOINTS: POST /api/ocr, /api/ocr-base64, /api/ocr-process
-// Supports both Multipart/form-data and JSON Base64 payloads
+// 1. CANONICAL OCR ENDPOINT: POST /api/ocr
 // ==========================================
 const handleOCR = async (req: Request, res: Response) => {
-  // Strategy A: JSON payload with Base64 image
+  console.log('[OCR] Request received');
+  console.log(`[OCR] Method: ${req.method}`);
+
+  // Check if payload is JSON with Base64 image
   if (req.body && (req.body.imageBase64 || req.body.file || req.body.image)) {
     try {
       const rawBase64 = String(req.body.imageBase64 || req.body.file || req.body.image);
@@ -53,16 +55,21 @@ const handleOCR = async (req: Request, res: Response) => {
       const buffer = Buffer.from(cleanBase64, 'base64');
       const mimeType = req.body.mimeType || 'image/jpeg';
 
+      console.log(`[OCR] File received: true (Base64 payload)`);
+      console.log(`[OCR] MIME type: ${mimeType}`);
+      console.log('[OCR] Starting AI extraction');
+
       const extractedData = await processShopeeScreenshot(buffer, mimeType);
       buffer.fill(0); // Immediately purge buffer from RAM
 
+      console.log('[OCR] Extraction successful');
       return res.status(200).json({
         success: true,
         message: 'Screenshot berhasil diekstraksi secara semantik.',
         data: extractedData,
       });
     } catch (aiErr: any) {
-      console.error('OCR JSON processing error:', aiErr);
+      console.error('[OCR] Extraction failed:', aiErr.message || aiErr);
       return res.status(500).json({
         success: false,
         error: aiErr.message || 'Gagal memproses screenshot dengan Vision AI.',
@@ -70,12 +77,12 @@ const handleOCR = async (req: Request, res: Response) => {
     }
   }
 
-  // Strategy B: Multipart / FormData file upload
+  // Multipart / FormData file upload
   upload.single('file')(req, res, async (err: any) => {
     if (err) {
       if (err instanceof multer.MulterError) {
         if (err.code === 'LIMIT_FILE_SIZE') {
-          return res.status(400).json({
+          return res.status(413).json({
             success: false,
             error: 'Ukuran file terlalu besar. Maksimal ukuran file adalah 25 MB.',
           });
@@ -93,23 +100,35 @@ const handleOCR = async (req: Request, res: Response) => {
           const cleanBase64 = rawBase64.includes(',') ? rawBase64.split(',')[1] : rawBase64;
           const buffer = Buffer.from(cleanBase64, 'base64');
           const mimeType = req.body.mimeType || 'image/jpeg';
+
+          console.log(`[OCR] File received: true (Form Base64)`);
+          console.log(`[OCR] MIME type: ${mimeType}`);
+          console.log('[OCR] Starting AI extraction');
+
           const extractedData = await processShopeeScreenshot(buffer, mimeType);
           buffer.fill(0);
+          console.log('[OCR] Extraction successful');
           return res.status(200).json({
             success: true,
             message: 'Screenshot berhasil diekstraksi secara semantik.',
             data: extractedData,
           });
         } catch (aiErr: any) {
+          console.error('[OCR] Extraction failed:', aiErr.message || aiErr);
           return res.status(500).json({ success: false, error: aiErr.message });
         }
       }
 
+      console.log('[OCR] File received: false');
       return res.status(400).json({
         success: false,
         error: 'File screenshot tidak ditemukan. Harap sertakan file screenshot.',
       });
     }
+
+    console.log(`[OCR] File received: true`);
+    console.log(`[OCR] MIME type: ${req.file.mimetype}`);
+    console.log('[OCR] Starting AI extraction');
 
     try {
       // Process image in memory via Vision AI (Gemini Flash)
@@ -119,6 +138,7 @@ const handleOCR = async (req: Request, res: Response) => {
       req.file.buffer.fill(0);
       delete (req as any).file;
 
+      console.log('[OCR] Extraction successful');
       return res.status(200).json({
         success: true,
         message: 'Screenshot berhasil diekstraksi secara semantik.',
@@ -129,7 +149,7 @@ const handleOCR = async (req: Request, res: Response) => {
         req.file.buffer.fill(0);
         delete (req as any).file;
       }
-      console.error('OCR processing failed:', aiErr);
+      console.error('[OCR] Extraction failed:', aiErr.message || aiErr);
       return res.status(500).json({
         success: false,
         error: aiErr.message || 'Terjadi kesalahan saat mengekstraksi data screenshot dengan Vision AI.',
@@ -138,14 +158,42 @@ const handleOCR = async (req: Request, res: Response) => {
   });
 };
 
-// Mount OCR handlers on multiple paths for robust proxy and client compatibility
+// Mount OCR handlers
 app.post('/api/ocr', handleOCR);
 app.post('/api/ocr/', handleOCR);
 app.post('/api/ocr-process', handleOCR);
 app.post('/api/ocr-base64', handleOCR);
+
+// GET /api/ocr MUST return HTTP 405 Method Not Allowed
 app.get('/api/ocr', (_req: Request, res: Response) => {
-  res.json({ success: true, message: 'OCR endpoint is online and ready for POST requests.' });
+  res.setHeader('Allow', 'POST');
+  return res.status(405).json({
+    success: false,
+    error: 'Endpoint OCR ditemukan tetapi HTTP method tidak sesuai. Pastikan aplikasi menggunakan POST /api/ocr.',
+  });
 });
+
+// ==========================================
+// RESET DATA API: POST /api/reset & /api/reset-data
+// ==========================================
+const handleResetData = (req: Request, res: Response) => {
+  try {
+    const { resetStreamers } = req.body || {};
+    const result = storage.resetAllData({ resetStreamers: !!resetStreamers });
+    console.log(`[RESET] Data reset executed. Reports removed: ${result.reportsRemoved}, Streamers removed: ${result.streamersRemoved}`);
+    res.json({
+      success: true,
+      message: 'Seluruh data transaksi pendapatan dan laporan berhasil direset menjadi 0.',
+      data: result,
+    });
+  } catch (err: any) {
+    console.error('[RESET] Failed to reset data:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+app.post('/api/reset', handleResetData);
+app.post('/api/reset-data', handleResetData);
 
 // ==========================================
 // 2. STREAMERS API

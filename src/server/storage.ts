@@ -232,7 +232,7 @@ class StorageManager {
       if (fs.existsSync(DB_FILE)) {
         const fileContent = fs.readFileSync(DB_FILE, 'utf-8');
         const parsed = JSON.parse(fileContent);
-        if (parsed.streamers && parsed.live_reports && parsed.users) {
+        if (Array.isArray(parsed.streamers) && Array.isArray(parsed.live_reports) && Array.isArray(parsed.users)) {
           this.data = parsed;
           return;
         }
@@ -515,6 +515,23 @@ class StorageManager {
       this.save();
     }
     return true;
+  }
+
+  // Reset all transaction/report data to 0
+  resetAllData(options?: { resetStreamers?: boolean }): { reportsRemoved: number; streamersRemoved: number } {
+    const reportsRemoved = this.data.live_reports.length;
+    const streamersRemoved = options?.resetStreamers ? this.data.streamers.length : 0;
+
+    // Clear all live reports so all metric totals drop to 0
+    this.data.live_reports = [];
+
+    // Optionally reset streamers as well
+    if (options?.resetStreamers) {
+      this.data.streamers = [];
+    }
+
+    this.save();
+    return { reportsRemoved, streamersRemoved };
   }
 
   // Analytics

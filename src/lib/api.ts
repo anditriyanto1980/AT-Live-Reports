@@ -72,90 +72,58 @@ export function fileToBase64(file: File): Promise<{ base64: string; mimeType: st
 }
 
 export async function uploadScreenshotOCR(file: File): Promise<OCRResponse> {
-  // Convert to Base64 in browser to avoid multipart boundary and proxy 405 issues
-  let base64Data: { base64: string; mimeType: string } | null = null;
+  // Primary Canonical Approach: Standard Multipart/form-data via POST /api/ocr
+  // NOTE: Do NOT set Content-Type header manually; browser automatically sets boundary!
+  const formData = new FormData();
+  formData.append('file', file);
+
   try {
-    base64Data = await fileToBase64(file);
-  } catch (convErr) {
-    console.warn('Failed to convert file to base64, will use FormData:', convErr);
-  }
-
-  // Strategy 1: JSON payload with Base64 to POST /api/ocr (bypasses all multipart / method restrictions)
-  if (base64Data && base64Data.base64) {
-    try {
-      const res = await fetch('/api/ocr', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({
-          imageBase64: base64Data.base64,
-          mimeType: base64Data.mimeType,
-          fileName: file.name,
-        }),
-      });
-
-      if (res.ok) {
-        return await safeParseResponse<OCRResponse>(res, 'Gagal memproses screenshot');
-      }
-
-      // If status is 405 on /api/ocr, try /api/ocr-process or /api/ocr-base64
-      if (res.status === 405) {
-        console.warn('POST /api/ocr returned 405, attempting fallback /api/ocr-process...');
-        const fallbackRes = await fetch('/api/ocr-process', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          },
-          body: JSON.stringify({
-            imageBase64: base64Data.base64,
-            mimeType: base64Data.mimeType,
-            fileName: file.name,
-          }),
-        });
-        if (fallbackRes.ok) {
-          return await safeParseResponse<OCRResponse>(fallbackRes, 'Gagal memproses screenshot');
-        }
-      }
-    } catch (jsonErr) {
-      console.warn('JSON Base64 OCR attempt failed, trying FormData fallback:', jsonErr);
-    }
-  }
-
-  // Strategy 2: Multipart FormData to /api/ocr
-  try {
-    const formData = new FormData();
-    formData.append('file', file);
-
-    const formRes = await fetch('/api/ocr', {
+    const res = await fetch('/api/ocr', {
       method: 'POST',
       body: formData,
     });
 
-    if (formRes.ok) {
-      return await safeParseResponse<OCRResponse>(formRes, 'Gagal memproses screenshot');
+    if (res.status === 405) {
+      throw new Error(
+        'Endpoint OCR ditemukan tetapi HTTP method tidak sesuai. Pastikan aplikasi menggunakan POST /api/ocr.'
+      );
     }
 
-    if (formRes.status === 405 && base64Data) {
-      // Try /api/ocr-base64 as final network attempt
-      const resBase64 = await fetch('/api/ocr-base64', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({
-          imageBase64: base64Data.base64,
-          mimeType: base64Data.mimeType,
-        }),
-      });
-      return await safeParseResponse<OCRResponse>(resBase64, 'Gagal memproses screenshot dengan AI');
+    if (res.status === 413) {
+      throw new Error('Ukuran file screenshot terlalu besar. Maksimal ukuran file adalah 25 MB.');
     }
 
-    return await safeParseResponse<OCRResponse>(formRes, 'Gagal memproses screenshot dengan AI');
+    if (res.ok) {
+      return await safeParseResponse<OCRResponse>(res, 'Gagal memproses screenshot');
+    }
+
+    // If an intermediate proxy blocks multipart uploads with 400/405/502, try JSON Base64 fallback
+    const errText = await res.text();
+    console.warn(`POST /api/ocr multipart returned status ${res.status}:`, errText);
+
+    // Fallback: Convert to Base64 in browser
+    const base64Data = await fileToBase64(file);
+    const jsonRes = await fetch('/api/ocr', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({
+        imageBase64: base64Data.base64,
+        mimeType: base64Data.mimeType,
+        fileName: file.name,
+      }),
+    });
+
+    return await safeParseResponse<OCRResponse>(jsonRes, 'Gagal memproses screenshot dengan AI');
   } catch (err: any) {
-    // If completely offline or network severed, provide graceful recovery
-    console.error('All OCR endpoints failed:', err);
-    throw new Error(err.message || 'Gagal memproses screenshot Shopee Live.');
+    if (err.message && err.message.includes('405')) {
+      throw new Error(
+        'Endpoint OCR ditemukan tetapi HTTP method tidak sesuai. Pastikan aplikasi menggunakan POST /api/ocr.'
+      );
+    }
+    throw err;
   }
 }
 
@@ -537,4 +505,32 @@ export async function fetchSystemStatus() {
     headers: { 'Accept': 'application/json' },
   });
   return safeParseResponse(res, 'Gagal mengambil status sistem');
+}
+
+export async function resetAllData(options?: { resetStreamers?: boolean }): Promise<{
+  reportsRemoved: number;
+  streamersRemoved: number;
+}> {
+  const res = await fetch('/api/reset', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify({ resetStreamers: options?.resetStreamers || false }),
+  });
+
+  const json = await safeParseResponse<{
+    success: boolean;
+    message: string;
+    data: { reportsRemoved: number; streamersRemoved: number };
+  }>(res, 'Gagal mereset data');
+
+  if (options?.resetStreamers) {
+    try {
+      localStorage.removeItem(LOCAL_STREAMERS_KEY);
+    } catch {}
+  }
+
+  return json.data;
 }

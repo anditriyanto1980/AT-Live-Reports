@@ -26,7 +26,9 @@ import {
   Trophy,
   Award,
   Medal,
+  RotateCcw,
 } from 'lucide-react';
+import { ResetDataModal } from '../components/ResetDataModal';
 
 interface DashboardProps {
   onNavigate: (tab: string, params?: any) => void;
@@ -55,6 +57,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
 
   // 3. WhatsApp Copy Toast
   const [copiedWA, setCopiedWA] = useState(false);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [resetNotification, setResetNotification] = useState<string | null>(null);
 
   // Calculate filter dates based on selection
   const getDateRange = () => {
@@ -227,6 +231,16 @@ _Laporan otomatis diekstrak via Vision AI & Database SRA_`;
             <span>{copiedWA ? 'Tersalin!' : 'Salin Rekap WA'}</span>
           </button>
 
+          {/* Reset All Data to 0 Button */}
+          <button
+            onClick={() => setIsResetModalOpen(true)}
+            className="flex items-center space-x-1.5 px-3.5 py-2.5 rounded-xl font-bold text-xs bg-red-950/40 hover:bg-red-900/60 text-red-300 hover:text-white border border-red-500/40 transition cursor-pointer"
+            title="Reset semua data transaksi dan laporan menjadi 0"
+          >
+            <RotateCcw className="h-4 w-4" />
+            <span>Reset Data (0)</span>
+          </button>
+
           <button
             onClick={loadData}
             title="Muat ulang data"
@@ -244,6 +258,19 @@ _Laporan otomatis diekstrak via Vision AI & Database SRA_`;
           </button>
         </div>
       </div>
+
+      {/* Notification Toast */}
+      {resetNotification && (
+        <div className="p-3.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 flex items-center justify-between text-xs font-semibold animate-fadeIn">
+          <div className="flex items-center space-x-2">
+            <Check className="h-4 w-4 text-emerald-400" />
+            <span>{resetNotification}</span>
+          </div>
+          <button onClick={() => setResetNotification(null)} className="text-emerald-400 hover:text-white ml-2">
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* TARGET TRACKING WIDGET */}
       <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl shadow-md">
@@ -952,6 +979,18 @@ _Laporan otomatis diekstrak via Vision AI & Database SRA_`;
           </div>
         </div>
       </div>
+
+      {/* RESET DATA MODAL */}
+      <ResetDataModal
+        isOpen={isResetModalOpen}
+        onClose={() => setIsResetModalOpen(false)}
+        onResetComplete={(result) => {
+          setResetNotification(
+            `Semua data transaksi pendapatan dan laporan (${result.reportsRemoved} laporan) berhasil direset menjadi 0.`
+          );
+          loadData();
+        }}
+      />
     </div>
   );
 };

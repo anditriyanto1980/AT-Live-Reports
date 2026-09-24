@@ -5,6 +5,8 @@ import {
   uploadScreenshotOCR,
   checkDuplicateReport,
   createReport,
+  getClientGeminiApiKey,
+  setClientGeminiApiKey,
 } from '../lib/api';
 import { formatRupiah, formatNumber, formatDateIndo } from '../lib/formatters';
 import {
@@ -25,6 +27,7 @@ import {
   AlertCircle,
   Clock,
   Zap,
+  Key,
 } from 'lucide-react';
 
 interface ImportReportProps {
@@ -54,6 +57,10 @@ export const ImportReport: React.FC<ImportReportProps> = ({ onNavigate }) => {
   } | null>(null);
   const [allowOverwrite, setAllowOverwrite] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
+
+  // Direct Browser Gemini API Key state
+  const [showKeyModal, setShowKeyModal] = useState<boolean>(false);
+  const [geminiKeyInput, setGeminiKeyInput] = useState<string>(() => getClientGeminiApiKey());
 
   // Drag & drop state
   const [isDragging, setIsDragging] = useState<boolean>(false);
@@ -341,10 +348,29 @@ export const ImportReport: React.FC<ImportReportProps> = ({ onNavigate }) => {
           if (str && str !== '{}') msg = str;
         } catch {}
       }
+      if (err.needsClientKey || msg.includes('server') || msg.includes('Vercel')) {
+        setShowKeyModal(true);
+      }
       setErrorMessage(msg);
     } finally {
       setIsAnalyzing(false);
       setAnalysisStep('');
+    }
+  };
+
+  const handleSaveApiKey = () => {
+    if (!geminiKeyInput.trim()) {
+      setErrorMessage('Harap masukkan Gemini API Key yang valid.');
+      return;
+    }
+    setClientGeminiApiKey(geminiKeyInput.trim());
+    setShowKeyModal(false);
+    setErrorMessage(null);
+    setSuccessToast('Kunci Gemini berhasil disimpan di browser! Memulai ulang ekstraksi gambar...');
+    if (selectedFile) {
+      setTimeout(() => {
+        handleProcessOCR();
+      }, 300);
     }
   };
 
@@ -472,17 +498,37 @@ export const ImportReport: React.FC<ImportReportProps> = ({ onNavigate }) => {
     <div className="space-y-6 max-w-5xl mx-auto pb-16">
       {/* Header */}
       <div className="bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl">
-        <div className="flex items-center space-x-2 text-orange-400 text-xs font-bold tracking-wider uppercase">
-          <Zap className="h-4 w-4" />
-          <span>Alur Ekstraksi AI & OCR</span>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center space-x-2 text-orange-400 text-xs font-bold tracking-wider uppercase">
+              <Zap className="h-4 w-4" />
+              <span>Alur Ekstraksi AI & OCR</span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-black text-white mt-1">
+              Import Shopee Live Report
+            </h1>
+            <p className="text-slate-400 text-xs sm:text-sm mt-1">
+              Upload screenshot laporan harian Shopee Live, AI akan mengekstrak seluruh 17 label metrik
+              secara otomatis untuk dikoreksi dan disimpan.
+            </p>
+          </div>
+
+          <button
+            onClick={() => setShowKeyModal(true)}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition flex items-center space-x-2 ${
+              getClientGeminiApiKey()
+                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20'
+                : 'bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20'
+            }`}
+          >
+            <Key className="h-4 w-4" />
+            <span>
+              {getClientGeminiApiKey()
+                ? '✓ Kunci Gemini Browser: Aktif'
+                : '⚡ Atur Kunci Gemini (Bypass Vercel)'}
+            </span>
+          </button>
         </div>
-        <h1 className="text-2xl sm:text-3xl font-black text-white mt-1">
-          Import Shopee Live Report
-        </h1>
-        <p className="text-slate-400 text-xs sm:text-sm mt-1">
-          Upload screenshot laporan harian Shopee Live, AI akan mengekstrak seluruh 17 label metrik
-          secara otomatis untuk dikoreksi dan disimpan.
-        </p>
 
         {/* Hard Requirement Banner */}
         <div className="mt-4 flex items-start space-x-3 bg-slate-800/80 border border-slate-700/80 p-3 rounded-xl text-xs text-slate-300">
@@ -491,7 +537,7 @@ export const ImportReport: React.FC<ImportReportProps> = ({ onNavigate }) => {
             <span className="font-bold text-white">Prinsip Keamanan & Privasi Gambar:</span>
             <p className="text-slate-400 mt-0.5">
               Screenshot yang diupload <strong className="text-slate-200">HANYA</strong> diproses
-              sementara dalam memori server untuk Vision AI. Gambar langsung dihapus dan{' '}
+              sementara dalam memori untuk Vision AI. Gambar langsung dihapus dan{' '}
               <strong className="text-slate-200">TIDAK PERNAH</strong> disimpan ke database atau disk.
             </p>
           </div>
@@ -500,12 +546,94 @@ export const ImportReport: React.FC<ImportReportProps> = ({ onNavigate }) => {
 
       {/* Notifications */}
       {errorMessage && (
-        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 flex items-start space-x-3 text-sm animate-fadeIn">
-          <AlertCircle className="h-5 w-5 text-rose-400 shrink-0 mt-0.5" />
-          <div className="flex-1 font-medium">{errorMessage}</div>
-          <button onClick={() => setErrorMessage(null)} className="text-rose-400 hover:text-white">
-            ✕
-          </button>
+        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-sm animate-fadeIn">
+          <div className="flex items-start space-x-3">
+            <AlertCircle className="h-5 w-5 text-rose-400 shrink-0 mt-0.5" />
+            <div>
+              <div className="font-semibold text-rose-200">Terjadi Kendala Ekstraksi</div>
+              <div className="text-xs text-rose-300/90 mt-0.5">{errorMessage}</div>
+            </div>
+          </div>
+          <div className="flex items-center space-x-2 shrink-0 pl-8 sm:pl-0">
+            <button
+              onClick={() => setShowKeyModal(true)}
+              className="px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shadow"
+            >
+              <Key className="h-3.5 w-3.5" />
+              <span>Gunakan Kunci Gemini Langsung</span>
+            </button>
+            <button onClick={() => setErrorMessage(null)} className="text-rose-400 hover:text-white px-2">
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL / POPUP ATUR KUNCI GEMINI LANGSUNG DI BROWSER */}
+      {showKeyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-2 rounded-xl bg-orange-500/10 text-orange-400 border border-orange-500/20">
+                  <Key className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-lg text-white">Kunci Gemini API (Mode Langsung)</h3>
+                  <p className="text-xs text-slate-400">Jalankan OCR 100% instan di browser Anda tanpa serverless Vercel</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowKeyModal(false)}
+                className="text-slate-400 hover:text-white text-lg font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="text-xs text-slate-300 space-y-2">
+              <p>
+                Karena Vercel Serverless Function sering mengalami limit timeout atau <code>FUNCTION_INVOCATION_FAILED</code> pada tier gratis, Anda dapat memasukkan Gemini API Key langsung di browser ini.
+              </p>
+              <p className="text-emerald-400 font-medium">
+                ✓ Kunci hanya tersimpan di memori browser lokal perangkat Anda (localStorage).
+                <br />
+                ✓ Ekstraksi screenshot Shopee Live akan langsung berjalan mulus dalam 2 detik!
+              </p>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block mb-1.5">
+                Google Gemini API Key
+              </label>
+              <input
+                type="password"
+                placeholder="AIzaSy..."
+                value={geminiKeyInput}
+                onChange={(e) => setGeminiKeyInput(e.target.value)}
+                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs font-mono focus:border-orange-500 focus:outline-none"
+              />
+              <p className="text-[11px] text-slate-500 mt-1">
+                Gunakan API Key yang sama dengan yang ada di Vercel Environment Variables Anda.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-800">
+              <button
+                onClick={() => setShowKeyModal(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold"
+              >
+                Tutup
+              </button>
+              <button
+                onClick={handleSaveApiKey}
+                className="px-5 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-xl text-xs font-black shadow-lg shadow-orange-500/25 flex items-center space-x-1.5"
+              >
+                <Check className="h-4 w-4" />
+                <span>Simpan & Mulai Ekstraksi</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
